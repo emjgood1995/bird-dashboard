@@ -110,13 +110,18 @@ kpi3.metric("Average Confidence", f"{filtered['Confidence'].mean():.2f}" if len(
 st.divider()
 
 # ---- Tabs ----
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Most Common Species",
     "Time of Day",
     "Weekly Trends",
     "Monthly Trends",
-    "Heatmap"
+    "Heatmap",
+    "Community Composition",
+    "Status Over Time",
+    "Status by Hour",
+    "Review / Richness"
 ])
+
 
 with tab1:
     top = filtered["Com_Name"].value_counts().head(20).reset_index()
@@ -159,3 +164,155 @@ with tab5:
     )
     fig.update_layout(xaxis=dict(dtick=1), yaxis=dict(dtick=1))
     st.plotly_chart(fig, use_container_width=True)
+
+with tab6:
+    st.subheader("Community Composition by Hour (Top 20 species, %)")
+
+    top_species = (
+        filtered["Com_Name"]
+        .value_counts()
+        .head(20)
+        .index
+    )
+
+    comp = filtered[filtered["Com_Name"].isin(top_species)].copy()
+
+    comp_hour = (
+        comp.groupby(["hour", "Com_Name"])
+        .size()
+        .reset_index(name="Count")
+    )
+
+    # Convert to % per hour
+    comp_hour["Percent"] = (
+        comp_hour.groupby("hour")["Count"]
+        .transform(lambda x: (x / x.sum()) * 100)
+    )
+
+    # Make hours appear even if empty
+    comp_hour = comp_hour.sort_values(["hour", "Percent"], ascending=[True, False])
+
+    fig = px.bar(
+        comp_hour,
+        x="hour",
+        y="Percent",
+        color="Com_Name",
+        title="Community composition by hour (%)",
+        labels={"hour": "Hour of day", "Percent": "% of detections"}
+    )
+    fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab7:
+    st.subheader("Status Composition Over Time (Monthly %)")
+
+    # Month as YYYY-MM for clean x-axis
+    tmp = filtered.dropna(subset=["timestamp"]).copy()
+    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
+
+    status_month = (
+        tmp.groupby(["month_period", "UK_Status"])
+        .size()
+        .reset_index(name="Count")
+    )
+
+    # Convert to % per month
+    status_month["Percent"] = (
+        status_month.groupby("month_period")["Count"]
+        .transform(lambda x: (x / x.sum()) * 100)
+    )
+
+    fig = px.area(
+        status_month,
+        x="month_period",
+        y="Percent",
+        color="UK_Status",
+        title="Monthly status composition (%)",
+        labels={"month_period": "Month", "Percent": "% of detections"}
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab8:
+    st.subheader("Activity by Hour, split by Status")
+
+    status_hour = (
+        filtered.groupby(["hour", "UK_Status"])
+        .size()
+        .reset_index(name="Count")
+    )
+
+    fig = px.line(
+        status_hour,
+        x="hour",
+        y="Count",
+        color="UK_Status",
+        markers=True,
+        title="Detections by hour (by status)",
+        labels={"hour": "Hour of day", "Count": "Detections"}
+    )
+    fig.update_layout(xaxis=dict(dtick=1))
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab9:
+    st.subheader("Species Richness Over Time (Unique species)")
+
+    tmp = filtered.dropna(subset=["timestamp"]).copy()
+    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
+
+    richness_month = (
+        tmp.groupby("month_period")["Com_Name"]
+        .nunique()
+        .reset_index(name="Unique_Species")
+    )
+
+    fig = px.line(
+        richness_month,
+        x="month_period",
+        y="Unique_Species",
+        markers=True,
+        title="Unique species per month",
+        labels={"month_period": "Month", "Unique_Species": "Unique species"}
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Review Recording: Top Species to Check")
+
+    review = filtered[filtered["UK_Status"] == "Review Recording"].copy()
+
+    if len(review) == 0:
+        st.info("No 'Review Recording' rows in the current filter.")
+    else:
+        top_review = (
+            review["Sci_Name"]
+            .value_counts()
+            .head(20)
+            .reset_index()
+        )
+        top_review.columns = ["Sci_Name", "Count"]
+
+        fig = px.bar(
+            top_review,
+            x="Count",
+            y="Sci_Name",
+            orientation="h",
+            title="Top 20 Latin names needing review"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Review Recording: Confidence by Hour")
+
+        conf_hour = (
+            review.groupby("hour")["Confidence"]
+            .mean()
+            .reset_index(name="Avg_Confidence")
+        )
+
+        fig = px.line(
+            conf_hour,
+            x="hour",
+            y="Avg_Confidence",
+            markers=True,
+            title="Average confidence by hour (Review Recording only)",
+            labels={"hour": "Hour of day", "Avg_Confidence": "Avg confidence"}
+        )
+        fig.update_layout(xaxis=dict(dtick=1))
+        st.plotly_chart(fig, use_container_width=True)
+
