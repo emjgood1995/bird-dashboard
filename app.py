@@ -179,40 +179,123 @@ with tab5:
 with tab6:
     st.subheader("Community Composition by Hour (Top 20 species, %)")
 
-    top_species = (
-        filtered["Com_Name"]
-        .value_counts()
-        .head(20)
-        .index
-    )
+    # Base data for this tab only
+    comp_df = filtered.dropna(subset=["timestamp"]).copy()
 
-    comp = filtered[filtered["Com_Name"].isin(top_species)].copy()
+    # Build date helpers
+    comp_df["year"] = comp_df["timestamp"].dt.year.astype(int)
+    comp_df["month_num"] = comp_df["timestamp"].dt.month.astype(int)
+    comp_df["month_period"] = comp_df["timestamp"].dt.to_period("M").astype(str)
 
-    comp_hour = (
-        comp.groupby(["hour", "Com_Name"])
-        .size()
-        .reset_index(name="Count")
-    )
+    # Season mapping (UK-style)
+    # Spring: Mar-May, Summer: Jun-Aug, Autumn: Sep-Nov, Winter: Dec-Feb
+    def season_from_month(m: int) -> str:
+        if m in (3, 4, 5):
+            return "Spring"
+        if m in (6, 7, 8):
+            return "Summer"
+        if m in (9, 10, 11):
+            return "Autumn"
+        return "Winter"
 
-    # Convert to % per hour
-    comp_hour["Percent"] = (
-        comp_hour.groupby("hour")["Count"]
-        .transform(lambda x: (x / x.sum()) * 100)
-    )
+    comp_df["season"] = comp_df["month_num"].apply(season_from_month)
 
-    # Make hours appear even if empty
-    comp_hour = comp_hour.sort_values(["hour", "Percent"], ascending=[True, False])
+    # ---- Controls (specific to this tab) ----
+    c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
 
-    fig = px.bar(
-        comp_hour,
-        x="hour",
-        y="Percent",
-        color="Com_Name",
-        title="Community composition by hour (%)",
-        labels={"hour": "Hour of day", "Percent": "% of detections"}
-    )
-    fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
+    with c1:
+        years = sorted(comp_df["year"].unique())
+        selected_year = st.selectbox("Year", years, index=len(years)-1)
+
+    with c2:
+        season_options = ["All", "Spring", "Summer", "Autumn", "Winter"]
+        selected_season = st.selectbox("Season", season_options, index=0)
+
+    # Filter by year + season
+    view_df = comp_df[comp_df["year"] == selected_year].copy()
+    if selected_season != "All":
+        view_df = view_df[view_df["season"] == selected_season].copy()
+
+    available_months = sorted(view_df["month_period"].unique())
+
+    with c3:
+        selected_months = st.multiselect(
+            "Months (aggregate across selection)",
+            available_months,
+            default=available_months[-1:] if len(available_months) else []
+        )
+
+    with c4:
+        compare_mode = st.checkbox("Compare two months", value=False)
+
+    if len(available_months) == 0:
+        st.info("No data available for the selected Year/Season.")
+    else:
+        # Helper to build the composition plot for a given dataframe and title
+        def composition_plot(df_in: pd.DataFrame, title: str):
+            if len(df_in) == 0:
+                st.warning("No data for this selection.")
+                return
+
+            # Top 20 species within this selection
+            top_species = df_in["Com_Name"].value_counts().head(20).index
+            df_in = df_in[df_in["Com_Name"].isin(top_species)].copy()
+
+            comp_hour = (
+                df_in.groupby(["hour", "Com_Name"])
+                .size()
+                .reset_index(name="Count")
+            )
+
+            # % within each hour
+            comp_hour["Percent"] = (
+                comp_hour.groupby("hour")["Count"]
+                .transform(lambda x: (x / x.sum()) * 100)
+            )
+
+            fig = px.bar(
+                comp_hour,
+                x="hour",
+                y="Percent",
+                color="Com_Name",
+                title=title,
+                labels={"hour": "Hour of day", "Percent": "% of detections"}
+            )
+            fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
+            st.plotly_chart(fig, use_container_width=True)
+
+        # ---- Compare mode (two months side-by-side) ----
+        if compare_mode:
+            st.caption("Compare two months within the selected Year/Season.")
+
+            # Pick two months (default to last two if possible)
+            default_a = available_months[-1]
+            default_b = available_months[-2] if len(available_months) >= 2 else available_months[-1]
+
+            m1, m2 = st.columns(2)
+            with m1:
+                month_a = st.selectbox("Month A", available_months, index=available_months.index(default_a))
+            with m2:
+                month_b = st.selectbox("Month B", available_months, index=available_months.index(default_b))
+
+            df_a = view_df[view_df["month_period"] == month_a].copy()
+            df_b = view_df[view_df["month_period"] == month_b].copy()
+
+            left, right = st.columns(2)
+            with left:
+                composition_plot(df_a, f"Community composition by hour (%) — {month_a}")
+            with right:
+                composition_plot(df_b, f"Community composition by hour (%) — {month_b}")
+
+        # ---- Multi-month aggregate mode ----
+        else:
+            if not selected_months:
+                st.info("Select one or more months to plot.")
+            else:
+                df_sel = view_df[view_df["month_period"].isin(selected_months)].copy()
+                title = "Community composition by hour (%) — " + ", ".join(selected_months)
+                composition_plot(df_sel, title)
+
 
 with tab7:
     st.subheader("Status Composition Over Time (Monthly %)")
