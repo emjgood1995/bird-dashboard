@@ -5,6 +5,85 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
+# ---- Nature UI styling (soft, not kitsch) ----
+st.markdown(
+    """
+    <style>
+      .stApp {
+        background: radial-gradient(1200px 600px at 10% 0%,
+          rgba(178, 223, 180, 0.35) 0%,
+          rgba(248, 246, 239, 1) 45%,
+          rgba(240, 246, 250, 1) 100%);
+        color: #1f2937;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      }
+
+      .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1200px;
+      }
+
+      section[data-testid="stSidebar"] > div {
+        background: rgba(255, 255, 255, 0.72);
+        border-right: 1px solid rgba(31, 41, 55, 0.08);
+        backdrop-filter: blur(10px);
+      }
+
+      h1, h2, h3 { letter-spacing: -0.02em; }
+
+      /* Softer tabs */
+      button[role="tab"] {
+        border-radius: 999px !important;
+        padding: 8px 14px !important;
+        margin-right: 6px !important;
+      }
+
+      /* KPI cards */
+      div[data-testid="stMetric"] {
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid rgba(31, 41, 55, 0.10);
+        border-radius: 16px;
+        padding: 14px 14px;
+        box-shadow: 0 8px 30px rgba(31, 41, 55, 0.08);
+      }
+
+      /* Plotly modebar less shouty */
+      .js-plotly-plot .plotly .modebar { opacity: 0.25; }
+      .js-plotly-plot:hover .plotly .modebar { opacity: 0.9; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+def style_fig(fig):
+    """Make Plotly feel calm + nature-friendly."""
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="rgba(255,255,255,0.0)",
+        plot_bgcolor="rgba(255,255,255,0.0)",
+        font=dict(color="#1f2937"),
+        title=dict(font=dict(size=20)),
+        legend=dict(
+            bgcolor="rgba(255,255,255,0.65)",
+            bordercolor="rgba(31,41,55,0.12)",
+            borderwidth=1
+        ),
+        margin=dict(l=10, r=10, t=60, b=10),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)")
+    return fig
+
+# ---- Shared natural palette ----
+NATURE_PALETTE = [
+    "#2E7D32", "#66BB6A", "#1B5E20", "#81C784",
+    "#4E342E", "#6D4C41", "#8D6E63", "#1565C0",
+    "#42A5F5", "#5C6BC0", "#9CCC65", "#A1887F",
+    "#FFB74D", "#8E24AA", "#00897B", "#689F38",
+    "#546E7A", "#F9A825", "#7CB342", "#3949AB",
+]
+
 # ---- Load data ----
 @st.cache_data
 def load_data():
@@ -45,9 +124,11 @@ def load_data():
 df = load_data()
 
 st.title("🦜 Bird Detection Dashboard")
+st.caption("A calm view of detections across time, seasons, and community composition.")
 
 # ---- Sidebar filters ----
-st.sidebar.header("Filters")
+st.sidebar.header("Explore")
+st.sidebar.caption("Refine detections, then browse the tabs for patterns.")
 
 # Confidence filter
 min_conf = st.sidebar.slider(
@@ -74,10 +155,8 @@ status_list = st.sidebar.multiselect(
 if status_list:
     filtered = filtered[filtered["UK_Status"].isin(status_list)]
 
-# ✅ Update 1: Date range filter
+# Date range filter
 st.sidebar.subheader("Date Range")
-
-# Guard against missing timestamps
 filtered_ts = filtered.dropna(subset=["timestamp"]).copy()
 min_date = filtered_ts["timestamp"].min().date()
 max_date = filtered_ts["timestamp"].max().date()
@@ -89,7 +168,6 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-# date_input can return a single date if user clicks oddly; normalize it
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
 else:
@@ -111,8 +189,7 @@ review_df = filtered[filtered["UK_Status"] == "Review Recording"].copy()
 if exclude_review:
     filtered = filtered[filtered["UK_Status"] != "Review Recording"].copy()
 
-
-# ✅ Update 2: KPI cards (PowerBI-style summary)
+# KPI cards
 kpi1, kpi2, kpi3 = st.columns(3)
 kpi1.metric("Total Detections", f"{len(filtered):,}")
 kpi2.metric("Unique Species", f"{filtered['Com_Name'].nunique():,}")
@@ -133,32 +210,30 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
     "Review / Richness"
 ])
 
-
 with tab1:
     top = filtered["Com_Name"].value_counts().head(20).reset_index()
     top.columns = ["Species", "Count"]
     fig = px.bar(top, x="Count", y="Species", orientation="h",
                  title="Top 20 Most Common Species")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab2:
     hourly = filtered.groupby("hour").size().reset_index(name="Count")
     fig = px.line(hourly, x="hour", y="Count", title="Activity by Hour of Day")
     fig.update_layout(xaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab3:
     weekly = filtered.groupby("week").size().reset_index(name="Count")
     fig = px.line(weekly, x="week", y="Count", title="Weekly Detection Trends")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab4:
     monthly = filtered.groupby("month").size().reset_index(name="Count")
     fig = px.line(monthly, x="month", y="Count", title="Monthly Detection Trends")
     fig.update_layout(xaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ✅ Update 3: Heatmap (Hour × Month)
 with tab5:
     heatmap = (
         filtered.groupby(["month", "hour"])
@@ -174,7 +249,7 @@ with tab5:
         title="Activity Heatmap (Hour vs Month)",
     )
     fig.update_layout(xaxis=dict(dtick=1), yaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab6:
     st.subheader("Community Composition by Hour (Top 20 species, %)")
@@ -189,7 +264,6 @@ with tab6:
         (5, "May"), (6, "June"), (7, "July"), (8, "August"),
         (9, "September"), (10, "October"), (11, "November"), (12, "December"),
     ]
-    month_name_by_num = {m: n for m, n in MONTHS}
     month_num_by_name = {n: m for m, n in MONTHS}
 
     def season_from_month(m: int) -> str:
@@ -200,7 +274,6 @@ with tab6:
 
     comp_df["season"] = comp_df["month_num"].apply(season_from_month)
 
-    # ----- Clean controls row -----
     c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.2, 1.0], gap="large")
 
     years_all = sorted(comp_df["year"].unique())
@@ -224,7 +297,6 @@ with tab6:
     with c4:
         compare_mode = st.checkbox("Compare two months", value=False)
 
-    # ----- Apply filters -----
     view_df = comp_df.copy()
 
     if year_mode == "Select years" and selected_years:
@@ -258,30 +330,7 @@ with tab6:
                 .transform(lambda x: (x / x.sum()) * 100)
             )
 
-            # stable colours
-            palette = [
-    "#2E7D32",  # deep woodland green
-    "#66BB6A",  # soft leaf green
-    "#1B5E20",  # dark forest
-    "#81C784",  # sage
-    "#4E342E",  # bark brown
-    "#6D4C41",  # warm earth
-    "#8D6E63",  # soft soil
-    "#1565C0",  # sky blue
-    "#42A5F5",  # lighter sky
-    "#5C6BC0",  # muted indigo
-    "#9CCC65",  # moss
-    "#A1887F",  # stone
-    "#FFB74D",  # soft amber
-    "#8E24AA",  # muted plum
-    "#00897B",  # teal
-    "#689F38",  # olive
-    "#546E7A",  # slate
-    "#F9A825",  # warm sunflower
-    "#7CB342",  # grass
-    "#3949AB",  # twilight blue
-]
-
+            palette = NATURE_PALETTE
             color_map = {sp: palette[i % len(palette)] for i, sp in enumerate(top_species)}
 
             fig = px.bar(
@@ -295,9 +344,8 @@ with tab6:
                 color_discrete_map=color_map
             )
             fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
-        # ----- Compare mode -----
         if compare_mode:
             left, right = st.columns(2, gap="large")
             with left:
@@ -317,19 +365,15 @@ with tab6:
             with r:
                 composition_plot(df_b, f"{month_b} • {years_label} • {season_label}")
 
-        # ----- Single view -----
         else:
             years_label = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
             season_label = "All seasons" if selected_season == "All" else selected_season
             month_label = "All months" if month_mode == "All months" else chosen_month
             composition_plot(view_df, f"{month_label} • {years_label} • {season_label}")
 
-
-
 with tab7:
     st.subheader("Status Composition Over Time (Monthly %)")
 
-    # Month as YYYY-MM for clean x-axis
     tmp = filtered.dropna(subset=["timestamp"]).copy()
     tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
 
@@ -339,7 +383,6 @@ with tab7:
         .reset_index(name="Count")
     )
 
-    # Convert to % per month
     status_month["Percent"] = (
         status_month.groupby("month_period")["Count"]
         .transform(lambda x: (x / x.sum()) * 100)
@@ -353,7 +396,7 @@ with tab7:
         title="Monthly status composition (%)",
         labels={"month_period": "Month", "Percent": "% of detections"}
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab8:
     st.subheader("Activity by Hour, split by Status")
@@ -374,7 +417,7 @@ with tab8:
         labels={"hour": "Hour of day", "Count": "Detections"}
     )
     fig.update_layout(xaxis=dict(dtick=1))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 with tab9:
     st.subheader("Species Richness Over Time (Unique species)")
@@ -396,7 +439,8 @@ with tab9:
         title="Unique species per month",
         labels={"month_period": "Month", "Unique_Species": "Unique species"}
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True)
+
     st.subheader("Review Recording: Top Species to Check")
 
     review = review_df
@@ -419,7 +463,8 @@ with tab9:
             orientation="h",
             title="Top 20 Latin names needing review"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
         st.subheader("Review Recording: Confidence by Hour")
 
         conf_hour = (
@@ -437,5 +482,4 @@ with tab9:
             labels={"hour": "Hour of day", "Avg_Confidence": "Avg confidence"}
         )
         fig.update_layout(xaxis=dict(dtick=1))
-        st.plotly_chart(fig, use_container_width=True)
-
+        st.plotly_chart(style_fig(fig), use_container_width=True)
