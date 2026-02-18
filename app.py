@@ -101,6 +101,17 @@ filtered = filtered[
     (filtered["timestamp"].dt.date <= end_date)
 ].copy()
 
+# Checkbox: exclude Review Recording rows from charts
+exclude_review = st.sidebar.checkbox("Exclude 'Review Recording' from graphs", value=True)
+
+# Keep a copy for Tab 9 (review stats), regardless of checkbox
+review_df = filtered[filtered["UK_Status"] == "Review Recording"].copy()
+
+# Apply the checkbox filter to the main dataframe used everywhere else
+if exclude_review:
+    filtered = filtered[filtered["UK_Status"] != "Review Recording"].copy()
+
+
 # ✅ Update 2: KPI cards (PowerBI-style summary)
 kpi1, kpi2, kpi3 = st.columns(3)
 kpi1.metric("Total Detections", f"{len(filtered):,}")
@@ -276,7 +287,7 @@ with tab9:
     st.plotly_chart(fig, use_container_width=True)
     st.subheader("Review Recording: Top Species to Check")
 
-    review = filtered[filtered["UK_Status"] == "Review Recording"].copy()
+    review = review_df
 
     if len(review) == 0:
         st.info("No 'Review Recording' rows in the current filter.")
