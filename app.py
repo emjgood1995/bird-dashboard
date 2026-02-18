@@ -8,6 +8,7 @@ st.set_page_config(layout="wide")
 # ---- Load data ----
 @st.cache_data
 def load_data():
+    # --- load detections ---
     conn = sqlite3.connect("birds.db")
     df = pd.read_sql_query("SELECT * FROM detections", conn)
     conn.close()
@@ -19,6 +20,25 @@ def load_data():
     df["hour"] = df["timestamp"].dt.hour
     df["week"] = df["timestamp"].dt.isocalendar().week.astype(int)
     df["month"] = df["timestamp"].dt.month.astype(int)
+
+    # --- load metadata (UK statuses) ---
+    meta = pd.read_excel("UK_Birds_Generalized_Status.xlsx")
+
+    # Normalize / rename to match DB column
+    meta = meta.rename(columns={
+        "Latin Name": "Sci_Name",
+        "Common Name": "UK_Common_Name",
+        "Status": "UK_Status"
+    })
+
+    # Keep only what we need (avoid duplicate column names)
+    meta = meta[["Sci_Name", "UK_Common_Name", "UK_Status"]].drop_duplicates()
+
+    # --- merge ---
+    df = df.merge(meta, on="Sci_Name", how="left")
+
+    # Flag missing metadata
+    df["UK_Status"] = df["UK_Status"].fillna("Review Recording")
 
     return df
 
@@ -46,6 +66,13 @@ species_list = st.sidebar.multiselect(
 )
 if species_list:
     filtered = filtered[filtered["Com_Name"].isin(species_list)]
+
+status_list = st.sidebar.multiselect(
+    "UK Status",
+    sorted(filtered["UK_Status"].dropna().unique())
+)
+if status_list:
+    filtered = filtered[filtered["UK_Status"].isin(status_list)]
 
 # ✅ Update 1: Date range filter
 st.sidebar.subheader("Date Range")
