@@ -259,7 +259,29 @@ with tab6:
             )
 
             # stable colours
-            palette = px.colors.qualitative.Alphabet
+            palette = [
+    "#2E7D32",  # deep woodland green
+    "#66BB6A",  # soft leaf green
+    "#1B5E20",  # dark forest
+    "#81C784",  # sage
+    "#4E342E",  # bark brown
+    "#6D4C41",  # warm earth
+    "#8D6E63",  # soft soil
+    "#1565C0",  # sky blue
+    "#42A5F5",  # lighter sky
+    "#5C6BC0",  # muted indigo
+    "#9CCC65",  # moss
+    "#A1887F",  # stone
+    "#FFB74D",  # soft amber
+    "#8E24AA",  # muted plum
+    "#00897B",  # teal
+    "#689F38",  # olive
+    "#546E7A",  # slate
+    "#F9A825",  # warm sunflower
+    "#7CB342",  # grass
+    "#3949AB",  # twilight blue
+]
+
             color_map = {sp: palette[i % len(palette)] for i, sp in enumerate(top_species)}
 
             fig = px.bar(
