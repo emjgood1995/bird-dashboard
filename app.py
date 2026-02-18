@@ -35,9 +35,10 @@ st.markdown(
 
       /* Sidebar */
       section[data-testid="stSidebar"] > div {
-        background: #ffffff !important;
-        border-right: 1px solid var(--border) !important;
-      }
+  background: #ffffff !important;
+  border-right: 1px solid var(--border) !important;
+}
+
       section[data-testid="stSidebar"] * {
         color: var(--text) !important;
       }
@@ -83,6 +84,16 @@ st.markdown(
         color: var(--muted) !important;
         font-weight: 600 !important;
       }
+      /* Soften the dark scroll shadow at the end of the tab bar */
+div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  box-shadow: none !important;
+}
+
+/* Some Streamlit builds use a gradient mask on the right edge; reduce it */
+div[data-testid="stTabs"] [data-baseweb="tab-list"]::after,
+div[data-testid="stTabs"] [data-baseweb="tab-list"]::before {
+  opacity: 0.15 !important;
+}
       div[data-testid="stMetric"] div {
         color: var(--text) !important;
         font-weight: 700 !important;
@@ -118,11 +129,12 @@ def style_fig(fig):
         font=dict(color="#111827", size=14),
         title=dict(font=dict(size=22, color="#111827")),
         legend=dict(
-            font=dict(size=13, color="#111827"),
-            bgcolor="rgba(255,255,255,0.95)",
-            bordercolor="rgba(17,24,39,0.14)",
-            borderwidth=1
-        ),
+    font=dict(size=13, color="#111827"),
+    title=dict(font=dict(size=13, color="#111827")),
+    bgcolor="rgba(255,255,255,0.95)",
+    bordercolor="rgba(17,24,39,0.14)",
+    borderwidth=1
+),
         margin=dict(l=12, r=12, t=70, b=12),
     )
     fig.update_xaxes(
@@ -192,7 +204,7 @@ def load_data():
 df = load_data()
 
 st.title("Bird Detection Dashboard")
-st.caption("A calm view of detections across time, seasons, and community composition.")
+st.caption("Detections across time, seasons, and community composition.")
 
 # ---- Sidebar filters ----
 st.sidebar.header("Explore")
