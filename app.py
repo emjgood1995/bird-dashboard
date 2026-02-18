@@ -11,14 +11,14 @@ st.markdown(
     """
     <style>
       :root {
-        --bg: #f6f5f0;        /* warm paper */
-        --panel: #ffffff;     /* card surface */
-        --text: #1f2937;      /* slate-800 */
-        --muted: #6b7280;     /* gray-500 */
-        --border: rgba(31,41,55,0.12);
-        --shadow: 0 10px 28px rgba(31,41,55,0.08);
+        --bg: #f6f5f0;
+        --panel: #ffffff;
+        --text: #111827;       /* darker */
+        --muted: #374151;      /* darker muted */
+        --border: rgba(17,24,39,0.14);
+        --shadow: 0 10px 28px rgba(17,24,39,0.08);
         --radius: 16px;
-        --accent: #2f6f4e;    /* muted green */
+        --accent: #2f6f4e;
       }
 
       .stApp {
@@ -33,16 +33,30 @@ st.markdown(
         max-width: 1250px;
       }
 
-      /* Sidebar: keep it clean + light */
+      /* Sidebar */
       section[data-testid="stSidebar"] > div {
-        background: #ffffff;
-        border-right: 1px solid var(--border);
+        background: #ffffff !important;
+        border-right: 1px solid var(--border) !important;
+      }
+      section[data-testid="stSidebar"] * {
+        color: var(--text) !important;
+      }
+      section[data-testid="stSidebar"] label,
+      section[data-testid="stSidebar"] p,
+      section[data-testid="stSidebar"] span {
+        color: var(--muted) !important;
+        font-weight: 500;
+      }
+
+      /* Main area text */
+      .stApp * {
+        color: var(--text);
       }
 
       /* Headings */
       h1, h2, h3 {
         letter-spacing: -0.02em;
-        color: var(--text);
+        color: var(--text) !important;
       }
 
       /* Tabs */
@@ -50,29 +64,45 @@ st.markdown(
         border-radius: 999px !important;
         padding: 8px 14px !important;
         margin-right: 6px !important;
+        color: var(--muted) !important;
+        font-weight: 600 !important;
+      }
+      button[role="tab"][aria-selected="true"] {
+        color: var(--accent) !important;
       }
 
       /* KPI metric cards */
       div[data-testid="stMetric"] {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 14px 14px;
-        box-shadow: var(--shadow);
+        background: var(--panel) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: var(--radius) !important;
+        padding: 14px 14px !important;
+        box-shadow: var(--shadow) !important;
       }
       div[data-testid="stMetric"] label {
         color: var(--muted) !important;
+        font-weight: 600 !important;
+      }
+      div[data-testid="stMetric"] div {
+        color: var(--text) !important;
+        font-weight: 700 !important;
       }
 
-      /* Make selectboxes/inputs feel less “black pill” */
+      /* Inputs: force readable text */
+      div[data-baseweb="select"] * ,
+      div[data-baseweb="input"] * ,
+      div[data-baseweb="textarea"] * {
+        color: var(--text) !important;
+      }
       div[data-baseweb="select"] > div,
       div[data-baseweb="input"] > div,
       div[data-baseweb="textarea"] > div {
         background: #ffffff !important;
         border-radius: 12px !important;
+        border-color: rgba(17,24,39,0.18) !important;
       }
 
-      /* Plotly modebar less intense */
+      /* Make Plotly modebar calmer */
       .js-plotly-plot .plotly .modebar { opacity: 0.25; }
       .js-plotly-plot:hover .plotly .modebar { opacity: 0.9; }
     </style>
@@ -81,23 +111,36 @@ st.markdown(
 )
 
 def style_fig(fig):
-    """Clean, readable Plotly styling that matches the 'paper' UI."""
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="#ffffff",
         plot_bgcolor="#ffffff",
-        font=dict(color="#1f2937"),
-        title=dict(font=dict(size=20, color="#1f2937")),
+        font=dict(color="#111827", size=14),
+        title=dict(font=dict(size=22, color="#111827")),
         legend=dict(
-            bgcolor="rgba(255,255,255,0.92)",
-            bordercolor="rgba(31,41,55,0.12)",
+            font=dict(size=13, color="#111827"),
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="rgba(17,24,39,0.14)",
             borderwidth=1
         ),
-        margin=dict(l=10, r=10, t=60, b=10),
+        margin=dict(l=12, r=12, t=70, b=12),
     )
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)", zeroline=False)
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)", zeroline=False)
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(17,24,39,0.08)",
+        zeroline=False,
+        title_font=dict(size=14, color="#111827"),
+        tickfont=dict(size=13, color="#111827"),
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(17,24,39,0.08)",
+        zeroline=False,
+        title_font=dict(size=14, color="#111827"),
+        tickfont=dict(size=13, color="#111827"),
+    )
     return fig
+
 
 
 # ---- Shared natural palette ----
