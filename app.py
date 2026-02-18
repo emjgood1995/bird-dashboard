@@ -6,49 +6,73 @@ import plotly.express as px
 st.set_page_config(layout="wide")
 
 # ---- Nature UI styling (soft, not kitsch) ----
+# ---- Clean nature UI styling (subtle, higher-contrast) ----
 st.markdown(
     """
     <style>
+      :root {
+        --bg: #f6f5f0;        /* warm paper */
+        --panel: #ffffff;     /* card surface */
+        --text: #1f2937;      /* slate-800 */
+        --muted: #6b7280;     /* gray-500 */
+        --border: rgba(31,41,55,0.12);
+        --shadow: 0 10px 28px rgba(31,41,55,0.08);
+        --radius: 16px;
+        --accent: #2f6f4e;    /* muted green */
+      }
+
       .stApp {
-        background: radial-gradient(1200px 600px at 10% 0%,
-          rgba(178, 223, 180, 0.35) 0%,
-          rgba(248, 246, 239, 1) 45%,
-          rgba(240, 246, 250, 1) 100%);
-        color: #1f2937;
+        background: var(--bg);
+        color: var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       }
 
       .block-container {
-        padding-top: 2rem;
+        padding-top: 1.8rem;
         padding-bottom: 3rem;
-        max-width: 1200px;
+        max-width: 1250px;
       }
 
+      /* Sidebar: keep it clean + light */
       section[data-testid="stSidebar"] > div {
-        background: rgba(255, 255, 255, 0.72);
-        border-right: 1px solid rgba(31, 41, 55, 0.08);
-        backdrop-filter: blur(10px);
+        background: #ffffff;
+        border-right: 1px solid var(--border);
       }
 
-      h1, h2, h3 { letter-spacing: -0.02em; }
+      /* Headings */
+      h1, h2, h3 {
+        letter-spacing: -0.02em;
+        color: var(--text);
+      }
 
-      /* Softer tabs */
+      /* Tabs */
       button[role="tab"] {
         border-radius: 999px !important;
         padding: 8px 14px !important;
         margin-right: 6px !important;
       }
 
-      /* KPI cards */
+      /* KPI metric cards */
       div[data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.75);
-        border: 1px solid rgba(31, 41, 55, 0.10);
-        border-radius: 16px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
         padding: 14px 14px;
-        box-shadow: 0 8px 30px rgba(31, 41, 55, 0.08);
+        box-shadow: var(--shadow);
+      }
+      div[data-testid="stMetric"] label {
+        color: var(--muted) !important;
       }
 
-      /* Plotly modebar less shouty */
+      /* Make selectboxes/inputs feel less “black pill” */
+      div[data-baseweb="select"] > div,
+      div[data-baseweb="input"] > div,
+      div[data-baseweb="textarea"] > div {
+        background: #ffffff !important;
+        border-radius: 12px !important;
+      }
+
+      /* Plotly modebar less intense */
       .js-plotly-plot .plotly .modebar { opacity: 0.25; }
       .js-plotly-plot:hover .plotly .modebar { opacity: 0.9; }
     </style>
@@ -57,23 +81,24 @@ st.markdown(
 )
 
 def style_fig(fig):
-    """Make Plotly feel calm + nature-friendly."""
+    """Clean, readable Plotly styling that matches the 'paper' UI."""
     fig.update_layout(
         template="plotly_white",
-        paper_bgcolor="rgba(255,255,255,0.0)",
-        plot_bgcolor="rgba(255,255,255,0.0)",
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
         font=dict(color="#1f2937"),
-        title=dict(font=dict(size=20)),
+        title=dict(font=dict(size=20, color="#1f2937")),
         legend=dict(
-            bgcolor="rgba(255,255,255,0.65)",
+            bgcolor="rgba(255,255,255,0.92)",
             bordercolor="rgba(31,41,55,0.12)",
             borderwidth=1
         ),
         margin=dict(l=10, r=10, t=60, b=10),
     )
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)")
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)")
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(31,41,55,0.08)", zeroline=False)
     return fig
+
 
 # ---- Shared natural palette ----
 NATURE_PALETTE = [
@@ -123,7 +148,7 @@ def load_data():
 
 df = load_data()
 
-st.title("🦜 Bird Detection Dashboard")
+st.title("Bird Detection Dashboard")
 st.caption("A calm view of detections across time, seasons, and community composition.")
 
 # ---- Sidebar filters ----
