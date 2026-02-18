@@ -293,13 +293,13 @@ with tab6:
         st.info("No data available for the selected filters.")
     else:
         # Helper to build the composition plot for a given dataframe and title
-        def composition_plot(df_in: pd.DataFrame, title: str):
+                def composition_plot(df_in: pd.DataFrame, title: str):
             if len(df_in) == 0:
                 st.warning("No data for this selection.")
                 return
 
-            # Top 20 within this selection
-            top_species = df_in["Com_Name"].value_counts().head(20).index
+            # Top 20 species within this selection (as a list, for stable ordering)
+            top_species = df_in["Com_Name"].value_counts().head(20).index.tolist()
             df_in = df_in[df_in["Com_Name"].isin(top_species)].copy()
 
             comp_hour = (
@@ -314,14 +314,21 @@ with tab6:
                 .transform(lambda x: (x / x.sum()) * 100)
             )
 
+            # ✅ Force distinct, stable colours (prevents palette reuse)
+            palette = px.colors.qualitative.Alphabet  # 26 distinct colours
+            color_map = {sp: palette[i % len(palette)] for i, sp in enumerate(top_species)}
+
             fig = px.bar(
                 comp_hour,
                 x="hour",
                 y="Percent",
                 color="Com_Name",
                 title=title,
-                labels={"hour": "Hour of day", "Percent": "% of detections"}
+                labels={"hour": "Hour of day", "Percent": "% of detections"},
+                category_orders={"Com_Name": top_species},   # stable legend order
+                color_discrete_map=color_map                 # stable colour per species
             )
+
             fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
             st.plotly_chart(fig, use_container_width=True)
 
