@@ -293,7 +293,7 @@ with tab6:
         st.info("No data available for the selected filters.")
     else:
         # Helper to build the composition plot for a given dataframe and title
-                def composition_plot(df_in: pd.DataFrame, title: str):
+        def composition_plot(df_in: pd.DataFrame, title: str):
             if len(df_in) == 0:
                 st.warning("No data for this selection.")
                 return
