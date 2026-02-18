@@ -35,7 +35,7 @@ st.markdown(
 
       /* Sidebar */
       section[data-testid="stSidebar"] > div {
-  background: #ffffff !important;
+  background: #f2f0e8 !important;
   border-right: 1px solid var(--border) !important;
 }
 
