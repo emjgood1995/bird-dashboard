@@ -8,7 +8,7 @@ st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon=
 # ---- Styling ----
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 
   :root {
     --bg:     #f5f3ee;
@@ -23,7 +23,9 @@ st.markdown("""
 
   .stApp {
     background: var(--bg);
-    font-family: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+  }
+  .stApp, .stApp * {
+    font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
 
   .block-container {
@@ -205,7 +207,7 @@ def style_fig(fig):
         paper_bgcolor="#ffffff",
         plot_bgcolor="#fafaf8",
         font=dict(
-            family="Nunito, ui-sans-serif, system-ui, sans-serif",
+            family="Cabin, ui-sans-serif, system-ui, sans-serif",
             color="#1a2416",
             size=13,
         ),
