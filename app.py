@@ -27,6 +27,12 @@ st.markdown("""
   .stApp, .stApp * {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
+  /* Restore Material Symbols for Streamlit's icon-ligature spans */
+  button[data-testid="collapsedControl"] span,
+  section[data-testid="stSidebar"] button span {
+    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
+    font-feature-settings: 'liga' 1 !important;
+  }
 
   .block-container {
     padding-top: 1.5rem;
@@ -130,6 +136,21 @@ st.markdown("""
   /* Hide Streamlit's default header bar and top decoration */
   header[data-testid="stHeader"] { display: none !important; }
   .stDecoration { display: none !important; }
+
+  /* Sidebar toggle — make it obviously clickable */
+  button[data-testid="collapsedControl"],
+  section[data-testid="stSidebar"] button[data-testid="collapsedControl"] {
+    background: rgba(61,107,68,0.13) !important;
+    border: 1.5px solid rgba(61,107,68,0.38) !important;
+    border-radius: 8px !important;
+    color: var(--accent) !important;
+    opacity: 1 !important;
+  }
+  button[data-testid="collapsedControl"]:hover,
+  section[data-testid="stSidebar"] button[data-testid="collapsedControl"]:hover {
+    background: rgba(61,107,68,0.24) !important;
+    border-color: rgba(61,107,68,0.55) !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
