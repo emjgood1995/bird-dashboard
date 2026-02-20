@@ -138,41 +138,55 @@ st.markdown("""
   .stDecoration { display: none !important; }
 
   /* ── Sidebar toggle buttons ──────────────────────────────────────────── */
-  /* Collapse (sidebar open): stSidebarCollapseButton                       */
-  /* Expand   (sidebar closed): stSidebarNavExpandButton  (in stHeader)     */
+  /* Hide all original icon content (broken ligature text, spans, SVGs)     */
+  /* and replace with clean Unicode chevrons via ::after pseudo-elements.   */
   [data-testid="stSidebarCollapseButton"],
   [data-testid="stSidebarNavExpandButton"] {
     visibility: visible !important;
     opacity: 1 !important;
     background: var(--accent) !important;
-    color: #ffffff !important;
     border: none !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
-    /* Material Symbols on the button itself — the expand button has no <span>,
-       its ligature text is a direct child text node of the <button> */
-    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
-    font-feature-settings: 'liga' 1 !important;
-    font-size: 24px !important;
+    cursor: pointer !important;
+    /* Hide any ligature text that is a direct child text node */
+    font-size: 0 !important;
+    color: transparent !important;
+    /* Sizing */
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  /* Hide child elements (spans, SVGs) */
+  [data-testid="stSidebarCollapseButton"] > *,
+  [data-testid="stSidebarNavExpandButton"] > * {
+    display: none !important;
+  }
+  /* Collapse button: show « */
+  [data-testid="stSidebarCollapseButton"]::after {
+    content: '\00AB' !important;
+    font-size: 20px !important;
+    font-family: 'Cabin', sans-serif !important;
+    color: #ffffff !important;
+    display: block !important;
+    line-height: 1 !important;
+  }
+  /* Expand button: show » */
+  [data-testid="stSidebarNavExpandButton"]::after {
+    content: '\00BB' !important;
+    font-size: 20px !important;
+    font-family: 'Cabin', sans-serif !important;
+    color: #ffffff !important;
+    display: block !important;
+    line-height: 1 !important;
   }
   [data-testid="stSidebarCollapseButton"]:hover,
   [data-testid="stSidebarNavExpandButton"]:hover {
     background: #2d5233 !important;
     box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
-  }
-  /* Handle SVG icon variants (future Streamlit versions) */
-  [data-testid="stSidebarCollapseButton"] svg,
-  [data-testid="stSidebarNavExpandButton"] svg {
-    fill: #ffffff !important;
-    stroke: #ffffff !important;
-    color: #ffffff !important;
-  }
-  /* Handle span-wrapped ligature icons (collapse button structure) */
-  [data-testid="stSidebarCollapseButton"] span,
-  [data-testid="stSidebarNavExpandButton"] span {
-    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
-    font-feature-settings: 'liga' 1 !important;
-    color: #ffffff !important;
   }
 </style>
 """, unsafe_allow_html=True)
