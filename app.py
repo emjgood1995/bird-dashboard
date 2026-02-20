@@ -138,8 +138,8 @@ st.markdown("""
   .stDecoration { display: none !important; }
 
   /* ── Sidebar toggle buttons ──────────────────────────────────────────── */
-  /* Hide all original icon content (broken ligature text, spans, SVGs)     */
-  /* and replace with clean Unicode chevrons via ::after pseudo-elements.   */
+  /* Make text/icons invisible, show « » via ::after. Don't remove children */
+  /* from the DOM (display:none broke Streamlit's click handlers).          */
   [data-testid="stSidebarCollapseButton"],
   [data-testid="stSidebarNavExpandButton"] {
     visibility: visible !important;
@@ -148,40 +148,20 @@ st.markdown("""
     border: none !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
-    cursor: pointer !important;
-    /* Hide any ligature text that is a direct child text node */
     font-size: 0 !important;
     color: transparent !important;
-    /* Sizing */
-    width: 32px !important;
-    height: 32px !important;
-    min-width: 32px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
   }
-  /* Hide child elements (spans, SVGs) */
-  [data-testid="stSidebarCollapseButton"] > *,
-  [data-testid="stSidebarNavExpandButton"] > * {
-    display: none !important;
-  }
-  /* Collapse button: show « */
   [data-testid="stSidebarCollapseButton"]::after {
-    content: '\00AB' !important;
-    font-size: 20px !important;
-    font-family: 'Cabin', sans-serif !important;
-    color: #ffffff !important;
-    display: block !important;
-    line-height: 1 !important;
+    content: '«';
+    font-size: 20px;
+    font-family: 'Cabin', sans-serif;
+    color: #ffffff;
   }
-  /* Expand button: show » */
   [data-testid="stSidebarNavExpandButton"]::after {
-    content: '\00BB' !important;
-    font-size: 20px !important;
-    font-family: 'Cabin', sans-serif !important;
-    color: #ffffff !important;
-    display: block !important;
-    line-height: 1 !important;
+    content: '»';
+    font-size: 20px;
+    font-family: 'Cabin', sans-serif;
+    color: #ffffff;
   }
   [data-testid="stSidebarCollapseButton"]:hover,
   [data-testid="stSidebarNavExpandButton"]:hover {
