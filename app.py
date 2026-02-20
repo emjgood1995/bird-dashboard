@@ -29,9 +29,11 @@ st.markdown("""
   }
   /* Restore Material Symbols for Streamlit's icon-ligature spans */
   button[data-testid="collapsedControl"] span,
+  div[data-testid="collapsedControl"] span,
   section[data-testid="stSidebar"] button span {
     font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
     font-feature-settings: 'liga' 1 !important;
+    color: #ffffff !important;
   }
 
   .block-container {
@@ -133,23 +135,32 @@ st.markdown("""
 
   hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
 
-  /* Hide Streamlit's default header bar and top decoration */
-  header[data-testid="stHeader"] { display: none !important; }
+  /* Header: transparent so it takes no visual space but keeps sidebar toggle in the DOM */
+  header[data-testid="stHeader"] {
+    background: var(--bg) !important;
+    box-shadow: none !important;
+  }
+  /* Hide toolbar content (hamburger, deploy button) but leave the sidebar toggle alone */
+  [data-testid="stToolbar"] { visibility: hidden !important; }
   .stDecoration { display: none !important; }
 
-  /* Sidebar toggle — make it obviously clickable */
+  /* ── Sidebar toggle button – both states ─────────────────────────────── */
+  /* Collapse button (sidebar open) and expand button (sidebar closed)      */
   button[data-testid="collapsedControl"],
-  section[data-testid="stSidebar"] button[data-testid="collapsedControl"] {
-    background: rgba(61,107,68,0.13) !important;
-    border: 1.5px solid rgba(61,107,68,0.38) !important;
-    border-radius: 8px !important;
-    color: var(--accent) !important;
+  div[data-testid="collapsedControl"],
+  section[data-testid="stSidebar"] button {
     opacity: 1 !important;
+    background: var(--accent) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
   }
   button[data-testid="collapsedControl"]:hover,
-  section[data-testid="stSidebar"] button[data-testid="collapsedControl"]:hover {
-    background: rgba(61,107,68,0.24) !important;
-    border-color: rgba(61,107,68,0.55) !important;
+  div[data-testid="collapsedControl"]:hover,
+  section[data-testid="stSidebar"] button:hover {
+    background: #2d5233 !important;
+    box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
   }
 </style>
 """, unsafe_allow_html=True)
