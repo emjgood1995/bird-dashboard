@@ -30,7 +30,7 @@ st.markdown("""
   .stApp p, .stApp label, .stApp div, .stApp a, .stApp li,
   .stApp td, .stApp th,
   .stApp input, .stApp textarea, .stApp select,
-  .stApp button[role="tab"] {
+  .stApp .stRadio label {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
 
@@ -64,33 +64,24 @@ st.markdown("""
     letter-spacing: -0.02em;
   }
 
-  /* Tabs */
-  button[role="tab"] {
-    border-radius: 999px !important;
-    padding: 6px 16px !important;
-    margin-right: 4px !important;
-    color: var(--muted) !important;
-    font-weight: 600 !important;
-    font-size: 0.85rem !important;
-    background: transparent !important;
-    border: 1px solid transparent !important;
+  /* Sidebar navigation radio buttons */
+  section[data-testid="stSidebar"] .stRadio > div {
+    gap: 2px !important;
   }
-  button[role="tab"]:hover {
+  section[data-testid="stSidebar"] .stRadio label {
+    padding: 8px 12px !important;
+    border-radius: 10px !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease !important;
+  }
+  section[data-testid="stSidebar"] .stRadio label:hover {
     background: rgba(61,107,68,0.08) !important;
+  }
+  section[data-testid="stSidebar"] .stRadio label[data-checked="true"],
+  section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) {
+    background: rgba(61,107,68,0.12) !important;
     color: var(--accent) !important;
-  }
-  button[role="tab"][aria-selected="true"] {
-    color: var(--accent) !important;
-    background: rgba(61,107,68,0.1) !important;
-    border-color: rgba(61,107,68,0.22) !important;
-  }
-  div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-    box-shadow: none !important;
-    gap: 2px;
-  }
-  div[data-testid="stTabs"] [data-baseweb="tab-list"]::after,
-  div[data-testid="stTabs"] [data-baseweb="tab-list"]::before {
-    opacity: 0.1 !important;
+    font-weight: 600 !important;
   }
 
   /* KPI metric cards */
@@ -318,7 +309,23 @@ st.caption("Detections across time, seasons, and community composition.")
 
 # ---- Sidebar filters ----
 st.sidebar.header("Explore")
-st.sidebar.caption("Refine detections, then browse the tabs for patterns.")
+
+page = st.sidebar.radio(
+    "View",
+    [
+        "Most Common Species",
+        "Time of Day",
+        "Weekly Trends",
+        "Monthly Trends",
+        "Heatmap",
+        "Community Composition",
+        "Status Over Time",
+        "Status by Hour",
+        "Review / Richness",
+    ],
+    label_visibility="collapsed",
+)
+st.sidebar.divider()
 
 min_conf = st.sidebar.slider(
     "Minimum Confidence",
@@ -379,21 +386,8 @@ kpi3.metric("Average Confidence",
 
 st.divider()
 
-# ---- Tabs ----
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-    "Most Common Species",
-    "Time of Day",
-    "Weekly Trends",
-    "Monthly Trends",
-    "Heatmap",
-    "Community Composition",
-    "Status Over Time",
-    "Status by Hour",
-    "Review / Richness",
-])
-
-# ── Tab 1: Top species ──────────────────────────────────────────────────────
-with tab1:
+# ── Most Common Species ─────────────────────────────────────────────────────
+if page == "Most Common Species":
     top = (
         filtered["Com_Name"].value_counts()
         .head(20)
@@ -413,8 +407,8 @@ with tab1:
     fig.update_traces(marker_line_width=0)
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 2: Time of day ──────────────────────────────────────────────────────
-with tab2:
+# ── Time of Day ─────────────────────────────────────────────────────────────
+elif page == "Time of Day":
     hourly = filtered.groupby("hour").size().reset_index(name="Count")
     fig = px.area(
         hourly, x="hour", y="Count",
@@ -430,8 +424,8 @@ with tab2:
     fig.update_layout(xaxis=dict(dtick=1))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 3: Weekly trends ────────────────────────────────────────────────────
-with tab3:
+# ── Weekly Trends ───────────────────────────────────────────────────────────
+elif page == "Weekly Trends":
     weekly = filtered.groupby("week").size().reset_index(name="Count")
     fig = px.area(
         weekly, x="week", y="Count",
@@ -446,8 +440,8 @@ with tab3:
     )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 4: Monthly trends ───────────────────────────────────────────────────
-with tab4:
+# ── Monthly Trends ──────────────────────────────────────────────────────────
+elif page == "Monthly Trends":
     monthly = filtered.groupby("month").size().reset_index(name="Count")
     fig = px.area(
         monthly, x="month", y="Count",
@@ -468,8 +462,8 @@ with tab4:
     ))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 5: Heatmap ──────────────────────────────────────────────────────────
-with tab5:
+# ── Heatmap ─────────────────────────────────────────────────────────────────
+elif page == "Heatmap":
     heatmap_data = (
         filtered.groupby(["month", "hour"])
         .size()
@@ -498,8 +492,8 @@ with tab5:
     )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 6: Community composition ────────────────────────────────────────────
-with tab6:
+# ── Community Composition ───────────────────────────────────────────────────
+elif page == "Community Composition":
     st.subheader("Community Composition by Hour (Top 20 species, %)")
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
@@ -620,8 +614,8 @@ with tab6:
             month_label  = "All months" if month_mode == "All months" else chosen_month
             composition_plot(view_df, f"{month_label} · {years_label} · {season_label}")
 
-# ── Tab 7: Status over time ─────────────────────────────────────────────────
-with tab7:
+# ── Status Over Time ────────────────────────────────────────────────────────
+elif page == "Status Over Time":
     tmp = filtered.dropna(subset=["timestamp"]).copy()
     tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
 
@@ -646,8 +640,8 @@ with tab7:
     )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 8: Status by hour ───────────────────────────────────────────────────
-with tab8:
+# ── Status by Hour ──────────────────────────────────────────────────────────
+elif page == "Status by Hour":
     status_hour = (
         filtered.groupby(["hour", "UK_Status"])
         .size()
@@ -668,8 +662,8 @@ with tab8:
     fig.update_traces(line=dict(width=2), marker=dict(size=5))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Tab 9: Review / Richness ────────────────────────────────────────────────
-with tab9:
+# ── Review / Richness ───────────────────────────────────────────────────────
+elif page == "Review / Richness":
     st.subheader("Species Richness Over Time")
 
     tmp = filtered.dropna(subset=["timestamp"]).copy()
