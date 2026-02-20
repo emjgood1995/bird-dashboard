@@ -154,6 +154,12 @@ st.markdown("""
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
   }
+  /* Force icon colour to white so it reads clearly against the green */
+  [data-testid="stSidebarCollapseButton"] span,
+  [data-testid="stSidebarCollapseButton"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+  }
   [data-testid="stSidebarCollapseButton"]:hover,
   [data-testid="stSidebarNavExpandButton"]:hover {
     background: #2d5233 !important;
