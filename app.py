@@ -23,8 +23,14 @@ st.markdown("""
 
   .stApp {
     background: var(--bg);
+    font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
-  .stApp, .stApp * {
+  /* Apply Cabin to text-bearing elements — NOT * (which broke icon fonts) */
+  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+  .stApp p, .stApp label, .stApp div, .stApp a, .stApp li,
+  .stApp td, .stApp th,
+  .stApp input, .stApp textarea, .stApp select,
+  .stApp button[role="tab"] {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
 
@@ -137,36 +143,20 @@ st.markdown("""
   [data-testid="stMainMenu"] { display: none !important; }
   .stDecoration { display: none !important; }
 
-  /* ── Sidebar toggle buttons ──────────────────────────────────────────── */
-  /* Make text/icons invisible, show « » via ::after. Don't remove children */
-  /* from the DOM (display:none broke Streamlit's click handlers).          */
+  /* ── Sidebar toggle buttons — visual only, don't touch font/icons ──── */
   [data-testid="stSidebarCollapseButton"],
   [data-testid="stSidebarNavExpandButton"] {
     visibility: visible !important;
     opacity: 1 !important;
     background: var(--accent) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
-    font-size: 0 !important;
-    color: transparent !important;
-  }
-  [data-testid="stSidebarCollapseButton"]::after {
-    content: '«';
-    font-size: 20px;
-    font-family: 'Cabin', sans-serif;
-    color: #ffffff;
-  }
-  [data-testid="stSidebarNavExpandButton"]::after {
-    content: '»';
-    font-size: 20px;
-    font-family: 'Cabin', sans-serif;
-    color: #ffffff;
   }
   [data-testid="stSidebarCollapseButton"]:hover,
   [data-testid="stSidebarNavExpandButton"]:hover {
     background: #2d5233 !important;
-    box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
   }
 </style>
 """, unsafe_allow_html=True)
