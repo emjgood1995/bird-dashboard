@@ -126,6 +126,10 @@ st.markdown("""
   .js-plotly-plot:hover .plotly .modebar { opacity: 0.85; }
 
   hr { border-color: var(--border) !important; margin: 1rem 0 !important; }
+
+  /* Hide Streamlit's default header bar and top decoration */
+  header[data-testid="stHeader"] { display: none !important; }
+  .stDecoration { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
