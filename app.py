@@ -145,23 +145,29 @@ st.markdown("""
     visibility: visible !important;
     opacity: 1 !important;
     background: var(--accent) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
+    /* Material Symbols on the button itself — the expand button has no <span>,
+       its ligature text is a direct child text node of the <button> */
+    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
+    font-feature-settings: 'liga' 1 !important;
+    font-size: 24px !important;
   }
   [data-testid="stSidebarCollapseButton"]:hover,
   [data-testid="stSidebarNavExpandButton"]:hover {
     background: #2d5233 !important;
     box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
   }
-  /* Icon rendering — handle both SVG and Material Symbols ligature variants */
+  /* Handle SVG icon variants (future Streamlit versions) */
   [data-testid="stSidebarCollapseButton"] svg,
   [data-testid="stSidebarNavExpandButton"] svg {
     fill: #ffffff !important;
     stroke: #ffffff !important;
     color: #ffffff !important;
   }
-  /* Restore Material Symbols font for ligature-based icons (overridden by global Cabin) */
+  /* Handle span-wrapped ligature icons (collapse button structure) */
   [data-testid="stSidebarCollapseButton"] span,
   [data-testid="stSidebarNavExpandButton"] span {
     font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
