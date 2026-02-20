@@ -154,11 +154,18 @@ st.markdown("""
     background: #2d5233 !important;
     box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
   }
-  /* White icons inside the buttons (SVG chevrons) */
+  /* Icon rendering — handle both SVG and Material Symbols ligature variants */
   [data-testid="stSidebarCollapseButton"] svg,
   [data-testid="stSidebarNavExpandButton"] svg {
     fill: #ffffff !important;
     stroke: #ffffff !important;
+    color: #ffffff !important;
+  }
+  /* Restore Material Symbols font for ligature-based icons (overridden by global Cabin) */
+  [data-testid="stSidebarCollapseButton"] span,
+  [data-testid="stSidebarNavExpandButton"] span {
+    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
+    font-feature-settings: 'liga' 1 !important;
     color: #ffffff !important;
   }
 </style>
