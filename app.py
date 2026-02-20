@@ -480,6 +480,14 @@ with tab6:
 
     comp_df["season"] = comp_df["month_num"].apply(season_from_month)
 
+    # Assign each species a colour once, ranked by overall frequency in this tab's
+    # data. Both comparison plots share this map so species colours are consistent.
+    _species_ranked = comp_df["Com_Name"].value_counts().index.tolist()
+    species_color_map = {
+        sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+        for i, sp in enumerate(_species_ranked)
+    }
+
     c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.2, 1.0], gap="large")
     years_all   = sorted(comp_df["year"].unique())
     month_names = [name for _, name in MONTHS]
@@ -531,8 +539,7 @@ with tab6:
                 .transform(lambda x: (x / x.sum()) * 100)
             )
 
-            color_map = {sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
-                         for i, sp in enumerate(top_species)}
+            color_map = {sp: species_color_map[sp] for sp in top_species}
 
             fig = px.bar(
                 comp_hour,
