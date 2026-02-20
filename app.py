@@ -27,14 +27,6 @@ st.markdown("""
   .stApp, .stApp * {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
   }
-  /* Restore Material Symbols for Streamlit's icon-ligature spans */
-  button[data-testid="collapsedControl"] span,
-  div[data-testid="collapsedControl"] span,
-  section[data-testid="stSidebar"] button span {
-    font-family: 'Material Symbols Rounded', 'Material Icons Rounded', 'Material Icons' !important;
-    font-feature-settings: 'liga' 1 !important;
-    color: #ffffff !important;
-  }
 
   .block-container {
     padding-top: 1.5rem;
@@ -144,23 +136,27 @@ st.markdown("""
   [data-testid="stToolbar"] { visibility: hidden !important; }
   .stDecoration { display: none !important; }
 
-  /* ── Sidebar toggle button – both states ─────────────────────────────── */
-  /* Collapse button (sidebar open) and expand button (sidebar closed)      */
-  button[data-testid="collapsedControl"],
-  div[data-testid="collapsedControl"],
-  section[data-testid="stSidebar"] button {
+  /* ── Sidebar toggle buttons ──────────────────────────────────────────── */
+  /* Collapse (sidebar open): stSidebarCollapseButton                       */
+  /* Expand   (sidebar closed): stSidebarNavExpandButton  (in stHeader)     */
+  [data-testid="stSidebarCollapseButton"],
+  [data-testid="stSidebarNavExpandButton"] {
     opacity: 1 !important;
     background: var(--accent) !important;
-    color: #ffffff !important;
     border: none !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 8px rgba(26,36,22,0.22) !important;
   }
-  button[data-testid="collapsedControl"]:hover,
-  div[data-testid="collapsedControl"]:hover,
-  section[data-testid="stSidebar"] button:hover {
+  [data-testid="stSidebarCollapseButton"]:hover,
+  [data-testid="stSidebarNavExpandButton"]:hover {
     background: #2d5233 !important;
     box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
+  }
+  /* White icons inside the buttons */
+  [data-testid="stSidebarCollapseButton"] svg,
+  [data-testid="stSidebarNavExpandButton"] svg {
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
   }
 </style>
 """, unsafe_allow_html=True)
