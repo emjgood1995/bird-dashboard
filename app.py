@@ -450,7 +450,7 @@ with tab5:
         coloraxis_colorbar=dict(
             title="Detections",
             tickfont=dict(size=11, color="#4a5c44"),
-            titlefont=dict(size=12, color="#4a5c44"),
+            title_font=dict(size=12, color="#4a5c44"),
             thickness=14,
         ),
     )
