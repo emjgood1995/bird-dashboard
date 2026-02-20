@@ -132,8 +132,9 @@ st.markdown("""
     background: var(--bg) !important;
     box-shadow: none !important;
   }
-  /* Hide toolbar content (hamburger, deploy button) but leave the sidebar toggle alone */
-  [data-testid="stToolbar"] { visibility: hidden !important; }
+  /* Hide only the menu button inside the toolbar — NOT the toolbar container itself,
+     which breaks the header flexbox layout and makes the expand button disappear */
+  [data-testid="stMainMenu"] { display: none !important; }
   .stDecoration { display: none !important; }
 
   /* ── Sidebar toggle buttons ──────────────────────────────────────────── */
@@ -141,6 +142,7 @@ st.markdown("""
   /* Expand   (sidebar closed): stSidebarNavExpandButton  (in stHeader)     */
   [data-testid="stSidebarCollapseButton"],
   [data-testid="stSidebarNavExpandButton"] {
+    visibility: visible !important;
     opacity: 1 !important;
     background: var(--accent) !important;
     border: none !important;
@@ -152,11 +154,12 @@ st.markdown("""
     background: #2d5233 !important;
     box-shadow: 0 4px 12px rgba(26,36,22,0.3) !important;
   }
-  /* White icons inside the buttons */
+  /* White icons inside the buttons (SVG chevrons) */
   [data-testid="stSidebarCollapseButton"] svg,
   [data-testid="stSidebarNavExpandButton"] svg {
     fill: #ffffff !important;
     stroke: #ffffff !important;
+    color: #ffffff !important;
   }
 </style>
 """, unsafe_allow_html=True)
