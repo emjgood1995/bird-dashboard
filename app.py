@@ -1193,13 +1193,83 @@ elif page == "Ecology & Phenology":
     # ── Diversity Indices ──
     st.subheader("Diversity Indices")
 
-    div_res = st.radio("Time resolution", ["Month", "Week"], horizontal=True, key="div_res")
-
     div_df = filtered.dropna(subset=["timestamp"]).copy()
+    div_df["year"] = div_df["timestamp"].dt.year.astype(int)
+    div_years_avail = sorted(div_df["year"].dropna().unique())
+
+    div_cmp = st.checkbox("Compare years", value=False, key="div_cmp_years")
 
     if len(div_df) == 0:
         st.info("No data available for diversity index computation.")
+    elif div_cmp and len(div_years_avail) >= 2:
+        default_div_yrs = div_years_avail[-2:] if len(div_years_avail) >= 2 else div_years_avail
+        div_years = st.multiselect(
+            "Years to compare", div_years_avail,
+            default=default_div_yrs, key="div_years",
+        )
+        if not div_years:
+            st.info("Select at least one year.")
+        else:
+            d_df = div_df[div_df["year"].isin(div_years)].copy()
+
+            # Compute indices per year × month
+            div_rows = []
+            for yr in sorted(div_years):
+                for m in range(1, 13):
+                    p_df = d_df[(d_df["year"] == yr) & (d_df["month"] == m)]
+                    counts = p_df["Com_Name"].value_counts().values
+                    total = counts.sum()
+                    richness = len(counts)
+                    if total > 0 and richness > 0:
+                        proportions = counts / total
+                        shannon = -np.sum(proportions * np.log(proportions))
+                        simpson = 1 - np.sum(proportions ** 2)
+                    else:
+                        shannon = 0.0
+                        simpson = 0.0
+                    div_rows.append({"Year": str(yr), "month": m, "Shannon_H": shannon,
+                                     "Simpson_1D": simpson, "Unique_Species": richness})
+            div_result = pd.DataFrame(div_rows)
+
+            _month_tick = dict(dtick=1, tickmode="array",
+                               tickvals=list(MONTH_LABELS.keys()),
+                               ticktext=list(MONTH_LABELS.values()))
+
+            fig_h = px.line(
+                div_result, x="month", y="Shannon_H", color="Year",
+                title="Shannon Diversity (H') by Year",
+                labels={"month": "Month", "Shannon_H": "H'", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig_h.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig_h.update_layout(xaxis=_month_tick)
+            st.plotly_chart(style_fig(fig_h), use_container_width=True)
+
+            fig_s = px.line(
+                div_result, x="month", y="Simpson_1D", color="Year",
+                title="Simpson's Diversity (1-D) by Year",
+                labels={"month": "Month", "Simpson_1D": "1-D", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig_s.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig_s.update_layout(xaxis=_month_tick)
+            st.plotly_chart(style_fig(fig_s), use_container_width=True)
+
+            fig_r = px.line(
+                div_result, x="month", y="Unique_Species", color="Year",
+                title="Unique Species per Month by Year",
+                labels={"month": "Month", "Unique_Species": "Unique species", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig_r.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig_r.update_layout(xaxis=_month_tick)
+            st.plotly_chart(style_fig(fig_r), use_container_width=True)
     else:
+        div_res = st.radio("Time resolution", ["Month", "Week"], horizontal=True, key="div_res")
+
         if div_res == "Month":
             div_df["period"] = div_df["timestamp"].dt.to_period("M").astype(str)
         else:
@@ -1222,7 +1292,7 @@ elif page == "Ecology & Phenology":
             else:
                 shannon = 0.0
                 simpson = 0.0
-            div_rows.append({"Period": p, "Shannon_H": shannon, "Simpson_1D": simpson, "Richness": richness})
+            div_rows.append({"Period": p, "Shannon_H": shannon, "Simpson_1D": simpson, "Unique_Species": richness})
         div_result = pd.DataFrame(div_rows)
 
         fig_h = px.line(
@@ -1243,12 +1313,13 @@ elif page == "Ecology & Phenology":
         fig_s.update_traces(line=dict(color=SECONDARY, width=2), marker=dict(size=5, color=SECONDARY))
         st.plotly_chart(style_fig(fig_s), use_container_width=True)
 
-        fig_r = px.bar(
-            div_result, x="Period", y="Richness",
-            title="Species Richness",
-            labels={"Period": div_res, "Richness": "Species count"},
+        fig_r = px.line(
+            div_result, x="Period", y="Unique_Species",
+            title="Unique Species per Month",
+            labels={"Period": div_res, "Unique_Species": "Unique species"},
+            markers=True,
         )
-        fig_r.update_traces(marker_color=TERTIARY, marker_line_width=0)
+        fig_r.update_traces(line=dict(color=TERTIARY, width=2), marker=dict(size=5, color=TERTIARY))
         st.plotly_chart(style_fig(fig_r), use_container_width=True)
 
 # ── Data Quality & Records ─────────────────────────────────────────────────
