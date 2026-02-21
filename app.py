@@ -409,7 +409,7 @@ page = st.sidebar.radio(
         "Community & Status",
         "Dawn Chorus Overview",
         "Weather & Activity",
-        "Data Quality & Records",
+        "Data Quality",
         "Records",
         "Species Explorer",
     ],
@@ -1718,8 +1718,8 @@ elif page == "Weather & Activity":
                 st.plotly_chart(style_fig(fig), use_container_width=True)
 
 
-# ── Data Quality & Records ─────────────────────────────────────────────────
-elif page == "Data Quality & Records":
+# ── Data Quality ─────────────────────────────────────────────────
+elif page == "Data Quality":
 
     # ── Confidence Distribution ──
     st.subheader("Confidence Distribution")
