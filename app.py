@@ -1447,7 +1447,19 @@ elif page == "Data Quality & Records":
             # 1. Update the local Excel file
             wb = openpyxl.load_workbook(EXCEL_PATH)
             ws = wb.active
-            ws.append([com_name, sci_name, new_status])
+
+            # Check if species already exists (match on Latin Name in column B)
+            existing_row = None
+            for row in ws.iter_rows(min_row=2):
+                if row[1].value == sci_name:
+                    existing_row = row
+                    break
+
+            if existing_row is not None:
+                existing_row[0].value = com_name
+                existing_row[2].value = new_status
+            else:
+                ws.append([com_name, sci_name, new_status])
             wb.save(EXCEL_PATH)
 
             # 2. Push to GitHub via Contents API
@@ -1466,11 +1478,12 @@ elif page == "Data Quality & Records":
                 file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
                 encoded = base64.b64encode(file_bytes).decode()
 
+                action = "Update" if existing_row is not None else "Add"
                 put_resp = requests.put(
                     api_url,
                     headers=headers,
                     json={
-                        "message": f"Add species status: {sci_name} -> {new_status}",
+                        "message": f"{action} species status: {sci_name} -> {new_status}",
                         "content": encoded,
                         "sha": sha,
                     },
@@ -1593,7 +1606,19 @@ elif page == "Species Explorer":
 
                 wb = openpyxl.load_workbook(EXCEL_PATH)
                 ws = wb.active
-                ws.append([se_com, se_sci, se_new_status])
+
+                # Check if species already exists (match on Latin Name in column B)
+                existing_row = None
+                for row in ws.iter_rows(min_row=2):
+                    if row[1].value == se_sci:
+                        existing_row = row
+                        break
+
+                if existing_row is not None:
+                    existing_row[0].value = se_com
+                    existing_row[2].value = se_new_status
+                else:
+                    ws.append([se_com, se_sci, se_new_status])
                 wb.save(EXCEL_PATH)
 
                 api_url = f"https://api.github.com/repos/{REPO}/contents/{EXCEL_PATH}"
@@ -1610,11 +1635,12 @@ elif page == "Species Explorer":
                     file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
                     encoded = base64.b64encode(file_bytes).decode()
 
+                    action = "Update" if existing_row is not None else "Add"
                     put_resp = requests.put(
                         api_url,
                         headers=headers,
                         json={
-                            "message": f"Add species status: {se_sci} -> {se_new_status}",
+                            "message": f"{action} species status: {se_sci} -> {se_new_status}",
                             "content": encoded,
                             "sha": sha,
                         },
