@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import base64
 import hashlib
@@ -205,6 +206,17 @@ STATUS_COLORS = {
     "Scarce Migrant":   "#8ab4c8",
 }
 
+DIET_COLORS = {
+    "Insectivore":  "#6a90b0",
+    "Granivore":    "#d4ac60",
+    "Omnivore":     "#5c8c5c",
+    "Frugivore":    "#c47a5a",
+    "Carnivore":    "#8b4c4c",
+    "Piscivore":    "#4a7090",
+    "Herbivore":    "#a3c47a",
+    "Unclassified": "#8c9c8c",
+}
+
 PRIMARY   = "#3d6b44"  # deep forest — main single-series colour
 SECONDARY = "#4a7090"  # lake blue
 TERTIARY  = "#b89040"  # harvest gold
@@ -332,6 +344,17 @@ def load_data():
     return df
 
 df = load_data()
+
+
+def load_diet_map():
+    try:
+        with open("species_diet.json") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+_diet_map = load_diet_map()
+df["Diet"] = df["Sci_Name"].map(_diet_map).fillna("Unclassified")
 
 
 @st.cache_data(ttl=86400)
@@ -2093,6 +2116,40 @@ elif page == "Records":
             hide_index=True,
         )
 
+    # ── Classify Unclassified Species ──
+    st.divider()
+    st.subheader("Classify Unclassified Species")
+    st.caption("Species not yet assigned a diet category.")
+
+    unclassified = df[df["Diet"] == "Unclassified"][["Sci_Name", "Com_Name"]].drop_duplicates().sort_values("Sci_Name")
+
+    if len(unclassified) == 0:
+        st.success("All species have been classified!")
+    else:
+        st.warning(f"{len(unclassified)} species need diet classification.")
+        labels = (unclassified["Sci_Name"] + "  (" + unclassified["Com_Name"] + ")").tolist()
+
+        DIET_CATEGORIES = ["Insectivore", "Granivore", "Omnivore", "Frugivore",
+                           "Carnivore", "Piscivore", "Herbivore"]
+
+        with st.form("classify_diet"):
+            chosen = st.selectbox("Species", labels)
+            diet = st.selectbox("Diet category", DIET_CATEGORIES)
+            submitted = st.form_submit_button("Save classification")
+
+        if submitted:
+            idx = labels.index(chosen)
+            sci_name = unclassified.iloc[idx]["Sci_Name"]
+
+            diet_data = load_diet_map()
+            diet_data[sci_name] = diet
+            with open("species_diet.json", "w") as f:
+                json.dump(diet_data, f, indent=2, sort_keys=True)
+
+            st.cache_data.clear()
+            st.success(f"Classified {sci_name} as {diet}.")
+            st.rerun()
+
 # ── Species Explorer ──────────────────────────────────────────────────────
 elif page == "Species Explorer":
     st.subheader("Species Explorer")
@@ -2132,6 +2189,19 @@ elif page == "Species Explorer":
             with text_col:
                 st.markdown(f"### {se_com}")
                 st.markdown(f"*{se_sci}*")
+
+                _se_status = filtered.loc[filtered["Sci_Name"] == se_sci, "UK_Status"].mode()
+                _se_diet = filtered.loc[filtered["Sci_Name"] == se_sci, "Diet"].mode()
+                _se_status_val = _se_status.iloc[0] if len(_se_status) else "Unknown"
+                _se_diet_val = _se_diet.iloc[0] if len(_se_diet) else "Unclassified"
+                _stat_color = STATUS_COLORS.get(_se_status_val, "#8c9c8c")
+                _diet_color = DIET_COLORS.get(_se_diet_val, "#8c9c8c")
+                st.markdown(
+                    f'<span style="background:{_stat_color};color:#fff;padding:3px 10px;border-radius:8px;font-size:0.85rem;font-weight:600;margin-right:8px">{_se_status_val}</span>'
+                    f'<span style="background:{_diet_color};color:#fff;padding:3px 10px;border-radius:8px;font-size:0.85rem;font-weight:600">{_se_diet_val}</span>',
+                    unsafe_allow_html=True,
+                )
+
                 st.markdown(wiki["extract"])
                 if wiki["page_url"]:
                     st.markdown(f"[Read more on Wikipedia]({wiki['page_url']})")
@@ -2143,6 +2213,19 @@ elif page == "Species Explorer":
             if first_sentence:
                 st.info(f"Fun fact: {first_sentence}.")
         else:
+            st.markdown(f"### {se_com}")
+            st.markdown(f"*{se_sci}*")
+            _se_status = filtered.loc[filtered["Sci_Name"] == se_sci, "UK_Status"].mode()
+            _se_diet = filtered.loc[filtered["Sci_Name"] == se_sci, "Diet"].mode()
+            _se_status_val = _se_status.iloc[0] if len(_se_status) else "Unknown"
+            _se_diet_val = _se_diet.iloc[0] if len(_se_diet) else "Unclassified"
+            _stat_color = STATUS_COLORS.get(_se_status_val, "#8c9c8c")
+            _diet_color = DIET_COLORS.get(_se_diet_val, "#8c9c8c")
+            st.markdown(
+                f'<span style="background:{_stat_color};color:#fff;padding:3px 10px;border-radius:8px;font-size:0.85rem;font-weight:600;margin-right:8px">{_se_status_val}</span>'
+                f'<span style="background:{_diet_color};color:#fff;padding:3px 10px;border-radius:8px;font-size:0.85rem;font-weight:600">{_se_diet_val}</span>',
+                unsafe_allow_html=True,
+            )
             st.warning("Could not fetch information from Wikipedia.")
 
         # Detection summary for selected species
