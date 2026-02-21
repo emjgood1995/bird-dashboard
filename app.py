@@ -560,26 +560,28 @@ elif page == "Community Composition":
 
     seasons_list = ["Spring", "Summer", "Autumn", "Winter"]
 
+    # Mutually exclusive checkboxes: toggling one clears the other via callbacks
+    # that fire before the next render, avoiding Streamlit's "can't set widget
+    # state after creation" error.
+    def _on_months_change():
+        if st.session_state.get("cc_cmp_months"):
+            st.session_state["cc_cmp_seasons"] = False
+
+    def _on_seasons_change():
+        if st.session_state.get("cc_cmp_seasons"):
+            st.session_state["cc_cmp_months"] = False
+
     c_cmp_m, c_cmp_s = st.columns(2, gap="large")
     with c_cmp_m:
-        compare_months = st.checkbox("Compare two months", value=False, key="cc_cmp_months")
+        compare_months = st.checkbox(
+            "Compare two months", value=False,
+            key="cc_cmp_months", on_change=_on_months_change,
+        )
     with c_cmp_s:
-        compare_seasons = st.checkbox("Compare two seasons", value=False, key="cc_cmp_seasons")
-
-    # Mutually exclusive: if both are checked, the most recently toggled wins.
-    if compare_months and compare_seasons:
-        # Both can't be true at once — keep the one that was just toggled.
-        # Use session state to track which was last active.
-        prev_months  = st.session_state.get("_cc_prev_cmp_months", False)
-        prev_seasons = st.session_state.get("_cc_prev_cmp_seasons", False)
-        if compare_months != prev_months:
-            compare_seasons = False
-            st.session_state["cc_cmp_seasons"] = False
-        else:
-            compare_months = False
-            st.session_state["cc_cmp_months"] = False
-    st.session_state["_cc_prev_cmp_months"]  = compare_months
-    st.session_state["_cc_prev_cmp_seasons"] = compare_seasons
+        compare_seasons = st.checkbox(
+            "Compare two seasons", value=False,
+            key="cc_cmp_seasons", on_change=_on_seasons_change,
+        )
 
     def composition_plot(df_in: pd.DataFrame, title: str):
         if len(df_in) == 0:
