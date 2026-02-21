@@ -993,6 +993,7 @@ elif page == "Ecology & Phenology":
     # ── Dawn Chorus Tracker ──
     st.subheader("Dawn Chorus Tracker")
     dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
+    dc_show_sunrise = st.checkbox("Show sunrise time", value=False, key="dc_sunrise")
 
     dc_df = filtered.dropna(subset=["timestamp"]).copy()
     dc_df = dc_df[(dc_df["hour"] >= 3) & (dc_df["hour"] <= 10)]
@@ -1003,33 +1004,45 @@ elif page == "Ecology & Phenology":
         top_dawn = dc_df["Com_Name"].value_counts().head(dc_topn).index.tolist()
         dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
         dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
+        dc_df["date"] = dc_df["timestamp"].dt.date
 
         earliest = (
-            dc_df.groupby(["month", "Com_Name"])["decimal_hour"]
+            dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
             .min()
             .reset_index(name="Earliest_Hour")
         )
-        earliest["Month_Label"] = earliest["month"].map(MONTH_LABELS)
 
         color_map = {
             sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
             for i, sp in enumerate(top_dawn)
         }
-        fig = px.line(
-            earliest, x="month", y="Earliest_Hour",
+        fig = px.scatter(
+            earliest, x="date", y="Earliest_Hour",
             color="Com_Name",
-            title="Earliest Detection by Month (Dawn Window)",
-            labels={"month": "Month", "Earliest_Hour": "Earliest hour", "Com_Name": "Species"},
+            title="Earliest Detection by Day (Dawn Window)",
+            labels={"date": "Date", "Earliest_Hour": "Earliest hour", "Com_Name": "Species"},
             color_discrete_map=color_map,
-            markers=True,
         )
-        fig.update_layout(xaxis=dict(
-            dtick=1,
-            tickmode="array",
-            tickvals=list(MONTH_LABELS.keys()),
-            ticktext=list(MONTH_LABELS.values()),
-        ))
-        fig.update_traces(line=dict(width=2), marker=dict(size=5))
+        fig.update_traces(marker=dict(size=5, opacity=0.7))
+
+        if dc_show_sunrise:
+            # Fetch sunrise data
+            w_lat = float(dc_df["Lat"].mode().iloc[0])
+            w_lon = float(dc_df["Lon"].mode().iloc[0])
+            w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
+            w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
+            _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
+            if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
+                sunrise_daily = sunrise_daily.copy()
+                sunrise_daily["sunrise_hour"] = (
+                    sunrise_daily["sunrise"].dt.hour + sunrise_daily["sunrise"].dt.minute / 60.0
+                )
+                fig.add_scatter(
+                    x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
+                    mode="lines", line=dict(color="#c47a5a", width=2.5, dash="dash"),
+                    name="Sunrise", showlegend=True,
+                )
+
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
