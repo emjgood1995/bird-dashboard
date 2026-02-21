@@ -2002,28 +2002,59 @@ elif page == "Records":
 
     # ── Rarest Visitors ──
     st.subheader("Rarest Visitors")
+    st.caption("Species with the fewest total detections — when they appeared and at what confidence.")
 
     if len(pr_df) == 0:
         st.info("No data available.")
     else:
-        rarest = (
-            pr_df["Com_Name"].value_counts()
-            .tail(pr_rarest_n)
+        # Identify the N rarest species
+        species_counts = pr_df["Com_Name"].value_counts()
+        rare_species = species_counts.tail(pr_rarest_n).index.tolist()
+        rare_df = pr_df[pr_df["Com_Name"].isin(rare_species)].copy()
+        rare_df["date"] = rare_df["timestamp"].dt.date
+
+        # Timeline scatter — coloured by UK status
+        cmap = status_color_map(rare_df["UK_Status"].dropna().unique())
+        # Order species by detection count (fewest at top)
+        species_order = species_counts.loc[rare_species].sort_values().index.tolist()
+
+        fig = px.scatter(
+            rare_df, x="date", y="Com_Name",
+            color="UK_Status",
+            size="Confidence",
+            size_max=12,
+            title=f"Rarest {pr_rarest_n} Species — Detection Timeline",
+            labels={"date": "Date", "Com_Name": "Species", "UK_Status": "UK Status",
+                    "Confidence": "Confidence"},
+            color_discrete_map=cmap,
+            category_orders={"Com_Name": species_order},
+            hover_data={"Confidence": ":.2f", "date": True},
+        )
+        fig.update_traces(marker=dict(opacity=0.8, line=dict(width=0.5, color="#1a2416")))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        # Detail table
+        rare_table = (
+            rare_df.groupby("Com_Name")
+            .agg(
+                Detections=("Com_Name", "size"),
+                Avg_Confidence=("Confidence", "mean"),
+                First_Seen=("timestamp", "min"),
+                Last_Seen=("timestamp", "max"),
+                UK_Status=("UK_Status", "first"),
+            )
             .reset_index()
         )
-        rarest.columns = ["Species", "Count"]
-        rarest = rarest.sort_values("Count", ascending=True)
+        rare_table["First Seen"] = rare_table["First_Seen"].dt.strftime("%Y-%m-%d")
+        rare_table["Last Seen"] = rare_table["Last_Seen"].dt.strftime("%Y-%m-%d")
+        rare_table["Avg Confidence"] = rare_table["Avg_Confidence"].round(3)
+        rare_table = rare_table.sort_values("Detections")
 
-        fig = px.bar(
-            rarest, x="Count", y="Species", orientation="h",
-            title=f"Top {pr_rarest_n} Rarest Species (fewest detections)",
-            labels={"Count": "Detections", "Species": ""},
-            color="Count",
-            color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
+        st.dataframe(
+            rare_table[["Com_Name", "Detections", "Avg Confidence", "First Seen", "Last Seen", "UK_Status"]]
+            .rename(columns={"Com_Name": "Species", "UK_Status": "UK Status"}),
+            hide_index=True,
         )
-        fig.update_coloraxes(showscale=False)
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
 
