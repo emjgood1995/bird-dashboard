@@ -980,7 +980,7 @@ elif page == "Review / Richness":
         VALID_STATUSES = [
             "Resident", "Summer visitor", "Winter visitor",
             "Passage migrant", "Scarce visitor", "Rare vagrant",
-            "Introduced species", "Reintroduced", "Extinct", "Other",
+            "Introduced species", "Reintroduced", "Extinct", "False Positive", "Other",
         ]
 
         with st.form("validate_review_species"):
