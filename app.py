@@ -642,7 +642,9 @@ elif page == "Heatmap":
     heatmap_pivot = heatmap_pivot.reindex(index=range(1, 13), columns=range(24), fill_value=0)
 
     fig = px.imshow(
-        heatmap_pivot,
+        heatmap_pivot.values,
+        x=list(range(24)),
+        y=list(MONTH_LABELS.values()),
         title="Activity Heatmap · Hour vs Month",
         color_continuous_scale=HEATMAP_SCALE,
         labels={"x": "Hour of day", "y": "Month", "color": "Detections"},
@@ -650,12 +652,7 @@ elif page == "Heatmap":
     )
     fig.update_layout(
         xaxis=dict(dtick=1),
-        yaxis=dict(
-            dtick=1,
-            tickmode="array",
-            tickvals=list(range(12)),
-            ticktext=list(MONTH_LABELS.values()),
-        ),
+        yaxis=dict(dtick=1),
         coloraxis_colorbar=dict(
             title="Detections",
             tickfont=dict(size=11, color="#4a5c44"),
