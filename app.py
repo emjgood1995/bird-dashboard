@@ -11,6 +11,8 @@ from plotly.subplots import make_subplots
 import requests
 import numpy as np
 import openpyxl
+from scipy.spatial.distance import pdist, squareform
+from sklearn.manifold import MDS
 from zoneinfo import ZoneInfo
 
 st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon="🐦")
@@ -236,6 +238,21 @@ MONTH_LABELS = {
     9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
 }
 
+TIME_BUCKET_COLORS = {
+    "Dawn (5–8)":       "#d4ac60",
+    "Morning (8–12)":   "#5c8c5c",
+    "Afternoon (12–17)":"#b89040",
+    "Dusk (17–20)":     "#8c5a70",
+    "Night (20–5)":     "#4a5c70",
+}
+
+SEASON_COLORS = {
+    "Spring": "#7aaa6a",
+    "Summer": "#d4ac60",
+    "Autumn": "#c47a5a",
+    "Winter": "#4a7090",
+}
+
 
 def status_color_map(statuses):
     """Build a color_discrete_map for a list of status strings."""
@@ -297,6 +314,35 @@ def style_fig(fig):
         tickfont=dict(size=12, color="#4a5c44"),
     )
     return fig
+
+
+def assign_time_bucket(hour):
+    if 5 <= hour < 8:
+        return "Dawn (5–8)"
+    elif 8 <= hour < 12:
+        return "Morning (8–12)"
+    elif 12 <= hour < 17:
+        return "Afternoon (12–17)"
+    elif 17 <= hour < 20:
+        return "Dusk (17–20)"
+    else:
+        return "Night (20–5)"
+
+
+@st.cache_data
+def compute_nmds(feature_matrix, species_list):
+    dist = squareform(pdist(feature_matrix, metric="braycurtis"))
+    mds = MDS(
+        n_components=2,
+        metric=False,
+        dissimilarity="precomputed",
+        n_init=10,
+        max_iter=500,
+        random_state=42,
+    )
+    coords = mds.fit_transform(dist)
+    stress = mds.stress_
+    return coords, stress
 
 
 @st.cache_data(ttl=86400)
@@ -430,6 +476,7 @@ page = st.sidebar.radio(
     [
         "Overview",
         "Community",
+        "NMDS",
         "Dawn Chorus Overview",
         "Weather & Activity",
         "Data Quality",
@@ -1331,6 +1378,154 @@ elif page == "Community":
         )
         fig_r.update_traces(line=dict(color=TERTIARY, width=2), marker=dict(size=5, color=TERTIARY))
         st.plotly_chart(style_fig(fig_r), use_container_width=True)
+
+# ── NMDS ──────────────────────────────────────────────────────────────────
+elif page == "NMDS":
+    st.subheader("NMDS Ordination")
+
+    nmds_c1, nmds_c2, nmds_c3 = st.columns(3)
+    with nmds_c1:
+        nmds_matrix = st.selectbox(
+            "Feature matrix",
+            ["Species × Time Bucket", "Species × Month", "Species × Week"],
+            key="nmds_matrix",
+        )
+    with nmds_c2:
+        nmds_colour = st.selectbox(
+            "Colour by",
+            ["Diet", "UK Status", "Dominant Time Bucket", "Peak Season"],
+            key="nmds_colour",
+        )
+    with nmds_c3:
+        nmds_min_det = st.slider(
+            "Minimum detections per species", 1, 100, 5, key="nmds_min_det",
+        )
+
+    # Filter to species with enough detections
+    nmds_det_counts = filtered["Com_Name"].value_counts()
+    nmds_valid_species = nmds_det_counts[nmds_det_counts >= nmds_min_det].index.tolist()
+    nmds_df = filtered[filtered["Com_Name"].isin(nmds_valid_species)].copy()
+
+    if len(nmds_valid_species) < 5:
+        st.warning(
+            f"Only {len(nmds_valid_species)} species meet the minimum detection threshold. "
+            "At least 5 are needed for NMDS. Try lowering the threshold or broadening filters."
+        )
+    else:
+        nmds_ts = nmds_df.dropna(subset=["timestamp"]).copy()
+
+        # Build pivot table based on chosen matrix
+        if nmds_matrix == "Species × Time Bucket":
+            nmds_ts["_unit"] = nmds_ts["hour"].apply(assign_time_bucket)
+            all_cols = list(TIME_BUCKET_COLORS.keys())
+        elif nmds_matrix == "Species × Month":
+            nmds_ts["_unit"] = nmds_ts["month"].map(MONTH_LABELS)
+            all_cols = list(MONTH_LABELS.values())
+        else:  # Species × Week
+            nmds_ts["_unit"] = nmds_ts["week"]
+            all_cols = list(range(1, 54))
+
+        nmds_pivot = nmds_ts.pivot_table(
+            index="Com_Name", columns="_unit", values="timestamp",
+            aggfunc="count", fill_value=0,
+        )
+        # Ensure all columns present
+        for c in all_cols:
+            if c not in nmds_pivot.columns:
+                nmds_pivot[c] = 0
+        nmds_pivot = nmds_pivot[all_cols]
+
+        # Normalise rows to proportions
+        row_sums = nmds_pivot.sum(axis=1).replace(0, 1)
+        nmds_norm = nmds_pivot.div(row_sums, axis=0)
+
+        species_list = nmds_norm.index.tolist()
+        coords, stress = compute_nmds(nmds_norm.values, tuple(species_list))
+
+        # Build result DataFrame with metadata
+        nmds_result = pd.DataFrame({
+            "Species": species_list,
+            "NMDS1": coords[:, 0],
+            "NMDS2": coords[:, 1],
+        })
+
+        # Add metadata per species
+        sp_meta = nmds_df.groupby("Com_Name").agg(
+            Diet=("Diet", lambda x: x.mode().iloc[0] if len(x.mode()) else "Unclassified"),
+            UK_Status=("UK_Status", lambda x: x.mode().iloc[0] if len(x.mode()) else "Unknown"),
+            Detections=("Com_Name", "count"),
+        ).reset_index().rename(columns={"Com_Name": "Species"})
+
+        # Dominant time bucket
+        nmds_ts["_tb"] = nmds_ts["hour"].apply(assign_time_bucket)
+        tb_counts = nmds_ts.groupby(["Com_Name", "_tb"]).size().reset_index(name="n")
+        dom_tb = tb_counts.loc[tb_counts.groupby("Com_Name")["n"].idxmax()][["Com_Name", "_tb"]]
+        dom_tb.columns = ["Species", "Dominant_Time_Bucket"]
+
+        # Peak season
+        season_map = {1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring", 5: "Spring",
+                      6: "Summer", 7: "Summer", 8: "Summer", 9: "Autumn", 10: "Autumn",
+                      11: "Autumn", 12: "Winter"}
+        nmds_ts["_season"] = nmds_ts["month"].map(season_map)
+        season_counts = nmds_ts.groupby(["Com_Name", "_season"]).size().reset_index(name="n")
+        peak_season = season_counts.loc[season_counts.groupby("Com_Name")["n"].idxmax()][["Com_Name", "_season"]]
+        peak_season.columns = ["Species", "Peak_Season"]
+
+        nmds_result = nmds_result.merge(sp_meta, on="Species", how="left")
+        nmds_result = nmds_result.merge(dom_tb, on="Species", how="left")
+        nmds_result = nmds_result.merge(peak_season, on="Species", how="left")
+
+        # Select colour column and colour map
+        if nmds_colour == "Diet":
+            color_col = "Diet"
+            color_map = DIET_COLORS
+        elif nmds_colour == "UK Status":
+            color_col = "UK_Status"
+            color_map = STATUS_COLORS
+        elif nmds_colour == "Dominant Time Bucket":
+            color_col = "Dominant_Time_Bucket"
+            color_map = TIME_BUCKET_COLORS
+        else:  # Peak Season
+            color_col = "Peak_Season"
+            color_map = SEASON_COLORS
+
+        fig_nmds = px.scatter(
+            nmds_result,
+            x="NMDS1", y="NMDS2",
+            color=color_col,
+            color_discrete_map=color_map,
+            hover_name="Species",
+            hover_data={
+                "Diet": True,
+                "UK_Status": True,
+                "Dominant_Time_Bucket": True,
+                "Peak_Season": True,
+                "Detections": True,
+                "NMDS1": ":.3f",
+                "NMDS2": ":.3f",
+            },
+            title="NMDS — Species by Temporal Activity Similarity",
+        )
+        fig_nmds.update_traces(marker=dict(size=10, line=dict(width=1, color="rgba(26,36,22,0.3)")))
+        st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
+
+        # Metrics row
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Stress", f"{stress:.4f}")
+        mc2.metric("Species", len(species_list))
+        if stress < 0.05:
+            quality = "Excellent"
+        elif stress < 0.1:
+            quality = "Good"
+        elif stress < 0.2:
+            quality = "Fair"
+        else:
+            quality = "Poor"
+        mc3.metric("Stress Quality", quality)
+        st.caption(
+            "Stress measures how well the 2D layout preserves the original dissimilarities. "
+            "Excellent < 0.05, Good < 0.1, Fair < 0.2, Poor ≥ 0.2."
+        )
 
 # ── Dawn Chorus Overview ──────────────────────────────────────────────────
 elif page == "Dawn Chorus Overview":
