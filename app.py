@@ -408,7 +408,7 @@ page = st.sidebar.radio(
         "Overview",
         "Activity & Trends",
         "Community & Status",
-        "Ecology & Phenology",
+        "Dawn Chorus Overview",
         "Weather & Activity",
         "Data Quality & Records",
         "Species Explorer",
@@ -545,6 +545,95 @@ if page == "Overview":
     fig.update_coloraxes(showscale=False)
     fig.update_traces(marker_line_width=0)
     st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── New Arrival Alerts ──
+    st.subheader("New Arrival Alerts")
+
+    na_df = filtered.dropna(subset=["timestamp"]).copy()
+    na_df["year"] = na_df["timestamp"].dt.year
+
+    available_years = sorted(na_df["year"].dropna().unique())
+    if len(available_years) == 0:
+        st.info("No data available for new arrival analysis.")
+    else:
+        na_years = st.multiselect(
+            "Years to inspect", available_years,
+            default=[available_years[-1]], key="na_years",
+        )
+        if not na_years:
+            st.info("Select at least one year.")
+        else:
+            first_det = (
+                na_df.groupby(["Com_Name", "year"])["timestamp"]
+                .min()
+                .reset_index(name="First_Seen")
+            )
+            first_det["First_Seen_Date"] = first_det["First_Seen"].dt.date
+
+            # Compute the earliest year each species was ever seen
+            ever_first = first_det.groupby("Com_Name")["year"].min().reset_index(name="First_Year_Ever")
+            first_det = first_det.merge(ever_first, on="Com_Name", how="left")
+            first_det["New_Species"] = first_det["year"] == first_det["First_Year_Ever"]
+
+            display_df = first_det[first_det["year"].isin(na_years)].copy()
+            display_df = display_df.sort_values("First_Seen_Date")
+
+            cols = st.columns(len(na_years))
+            for i, yr in enumerate(sorted(na_years)):
+                yr_new = display_df[(display_df["year"] == yr) & (display_df["New_Species"])]
+                cols[i].metric(f"New arrivals {yr}", len(yr_new))
+
+            st.dataframe(
+                display_df[["Com_Name", "year", "First_Seen_Date", "New_Species"]]
+                .rename(columns={"Com_Name": "Species", "year": "Year",
+                                 "First_Seen_Date": "First Seen", "New_Species": "New Species"}),
+                hide_index=True,
+            )
+
+    st.divider()
+
+    # ── Year List Progress ──
+    st.subheader("Year List Progress")
+
+    yl_df = filtered.dropna(subset=["timestamp"]).copy()
+    yl_df["year"] = yl_df["timestamp"].dt.year
+    yl_years_avail = sorted(yl_df["year"].dropna().unique())
+
+    if len(yl_years_avail) < 1:
+        st.info("No data available for year list progress.")
+    else:
+        default_yl = yl_years_avail[-2:] if len(yl_years_avail) >= 2 else yl_years_avail
+        yl_years = st.multiselect(
+            "Years to compare", yl_years_avail,
+            default=default_yl, key="yl_years",
+        )
+        if not yl_years:
+            st.info("Select at least one year.")
+        else:
+            yl_df = yl_df[yl_df["year"].isin(yl_years)].copy()
+            yl_df["doy"] = yl_df["timestamp"].dt.dayofyear
+
+            first_doy = yl_df.groupby(["year", "Com_Name"])["doy"].min().reset_index(name="First_DOY")
+
+            cumul_rows = []
+            for yr in sorted(yl_years):
+                yr_data = first_doy[first_doy["year"] == yr].sort_values("First_DOY")
+                for doy_val in range(1, 367):
+                    count = (yr_data["First_DOY"] <= doy_val).sum()
+                    cumul_rows.append({"Year": str(int(yr)), "Day_of_Year": doy_val, "Cumulative_Species": count})
+            cumul_df = pd.DataFrame(cumul_rows)
+
+            fig = px.line(
+                cumul_df, x="Day_of_Year", y="Cumulative_Species",
+                color="Year",
+                title="Cumulative Species by Day of Year",
+                labels={"Day_of_Year": "Day of year", "Cumulative_Species": "Cumulative species", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+            )
+            fig.update_traces(line=dict(width=2))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Activity & Trends ───────────────────────────────────────────────────────
 elif page == "Activity & Trends":
@@ -1007,175 +1096,6 @@ elif page == "Community & Status":
     ))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-
-# ── Ecology & Phenology ────────────────────────────────────────────────────
-elif page == "Ecology & Phenology":
-
-    # ── Dawn Chorus Tracker ──
-    st.subheader("Dawn Chorus Tracker")
-    dc_c1, dc_c2 = st.columns(2, gap="large")
-    with dc_c1:
-        dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
-    with dc_c2:
-        dc_time_mode = st.radio("Time format", ["Local (GMT/BST)", "UTC"], horizontal=True, key="dc_time_mode")
-
-    dc_df = filtered.dropna(subset=["timestamp"]).copy()
-    dc_df = dc_df[(dc_df["hour"] >= 3) & (dc_df["hour"] <= 10)]
-
-    if len(dc_df) == 0:
-        st.info("No detections in the dawn window (03:00-10:00) for current filters.")
-    else:
-        top_dawn = dc_df["Com_Name"].value_counts().head(dc_topn).index.tolist()
-        dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
-        dc_df["date"] = dc_df["timestamp"].dt.date
-
-        # Open-Meteo sunrise is in GMT (smooth). Detections are in local time.
-        # In UTC mode: convert detections local→UTC so both align with sunrise.
-        # In local mode: use raw detection hours; shift sunrise by +1 during BST.
-        use_utc = dc_time_mode == "UTC"
-        if use_utc:
-            dc_df["decimal_hour"] = to_utc_hour(dc_df["timestamp"])
-            hour_label = "Hour (UTC)"
-        else:
-            dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
-            hour_label = "Hour (local)"
-
-        earliest = (
-            dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
-            .min()
-            .reset_index(name="Earliest_Hour")
-        )
-
-        color_map = {
-            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
-            for i, sp in enumerate(top_dawn)
-        }
-        fig = px.scatter(
-            earliest, x="date", y="Earliest_Hour",
-            color="Com_Name",
-            title="Earliest Detection by Day (Dawn Window)",
-            labels={"date": "Date", "Earliest_Hour": hour_label, "Com_Name": "Species"},
-            color_discrete_map=color_map,
-        )
-        fig.update_traces(marker=dict(size=5, opacity=0.7))
-
-        # Always show sunrise
-        w_lat = float(dc_df["Lat"].mode().iloc[0])
-        w_lon = float(dc_df["Lon"].mode().iloc[0])
-        w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
-        w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
-        _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
-        if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
-            sunrise_daily = sunrise_daily.copy()
-            if use_utc:
-                # Sunrise from Open-Meteo is already GMT/UTC
-                sunrise_daily["sunrise_hour"] = (
-                    sunrise_daily["sunrise"].dt.hour + sunrise_daily["sunrise"].dt.minute / 60.0
-                )
-            else:
-                # Convert GMT sunrise to local time (add 1 hour during BST)
-                sunrise_daily["sunrise_hour"] = sunrise_daily["sunrise"].apply(
-                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
-                ).dt.hour + sunrise_daily["sunrise"].apply(
-                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
-                ).dt.minute / 60.0
-            fig.add_scatter(
-                x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
-                mode="lines", line=dict(color="#c47a5a", width=2.5, dash="dash"),
-                name="Sunrise", showlegend=True,
-            )
-
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-    st.divider()
-
-    # ── New Arrival Alerts ──
-    st.subheader("New Arrival Alerts")
-
-    na_df = filtered.dropna(subset=["timestamp"]).copy()
-    na_df["year"] = na_df["timestamp"].dt.year
-
-    available_years = sorted(na_df["year"].dropna().unique())
-    if len(available_years) == 0:
-        st.info("No data available for new arrival analysis.")
-    else:
-        na_years = st.multiselect(
-            "Years to inspect", available_years,
-            default=[available_years[-1]], key="na_years",
-        )
-        if not na_years:
-            st.info("Select at least one year.")
-        else:
-            first_det = (
-                na_df.groupby(["Com_Name", "year"])["timestamp"]
-                .min()
-                .reset_index(name="First_Seen")
-            )
-            first_det["First_Seen_Date"] = first_det["First_Seen"].dt.date
-
-            # Compute the earliest year each species was ever seen
-            ever_first = first_det.groupby("Com_Name")["year"].min().reset_index(name="First_Year_Ever")
-            first_det = first_det.merge(ever_first, on="Com_Name", how="left")
-            first_det["New_Species"] = first_det["year"] == first_det["First_Year_Ever"]
-
-            display_df = first_det[first_det["year"].isin(na_years)].copy()
-            display_df = display_df.sort_values("First_Seen_Date")
-
-            cols = st.columns(len(na_years))
-            for i, yr in enumerate(sorted(na_years)):
-                yr_new = display_df[(display_df["year"] == yr) & (display_df["New_Species"])]
-                cols[i].metric(f"New arrivals {yr}", len(yr_new))
-
-            st.dataframe(
-                display_df[["Com_Name", "year", "First_Seen_Date", "New_Species"]]
-                .rename(columns={"Com_Name": "Species", "year": "Year",
-                                 "First_Seen_Date": "First Seen", "New_Species": "New Species"}),
-                hide_index=True,
-            )
-
-    st.divider()
-
-    # ── Year List Progress ──
-    st.subheader("Year List Progress")
-
-    yl_df = filtered.dropna(subset=["timestamp"]).copy()
-    yl_df["year"] = yl_df["timestamp"].dt.year
-    yl_years_avail = sorted(yl_df["year"].dropna().unique())
-
-    if len(yl_years_avail) < 1:
-        st.info("No data available for year list progress.")
-    else:
-        default_yl = yl_years_avail[-2:] if len(yl_years_avail) >= 2 else yl_years_avail
-        yl_years = st.multiselect(
-            "Years to compare", yl_years_avail,
-            default=default_yl, key="yl_years",
-        )
-        if not yl_years:
-            st.info("Select at least one year.")
-        else:
-            yl_df = yl_df[yl_df["year"].isin(yl_years)].copy()
-            yl_df["doy"] = yl_df["timestamp"].dt.dayofyear
-
-            first_doy = yl_df.groupby(["year", "Com_Name"])["doy"].min().reset_index(name="First_DOY")
-
-            cumul_rows = []
-            for yr in sorted(yl_years):
-                yr_data = first_doy[first_doy["year"] == yr].sort_values("First_DOY")
-                for doy_val in range(1, 367):
-                    count = (yr_data["First_DOY"] <= doy_val).sum()
-                    cumul_rows.append({"Year": str(int(yr)), "Day_of_Year": doy_val, "Cumulative_Species": count})
-            cumul_df = pd.DataFrame(cumul_rows)
-
-            fig = px.line(
-                cumul_df, x="Day_of_Year", y="Cumulative_Species",
-                color="Year",
-                title="Cumulative Species by Day of Year",
-                labels={"Day_of_Year": "Day of year", "Cumulative_Species": "Cumulative species", "Year": "Year"},
-                color_discrete_sequence=NATURE_PALETTE,
-            )
-            fig.update_traces(line=dict(width=2))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
-
     st.divider()
 
     # ── Species Co-occurrence ──
@@ -1363,6 +1283,196 @@ elif page == "Ecology & Phenology":
         )
         fig_r.update_traces(line=dict(color=TERTIARY, width=2), marker=dict(size=5, color=TERTIARY))
         st.plotly_chart(style_fig(fig_r), use_container_width=True)
+
+# ── Dawn Chorus Overview ──────────────────────────────────────────────────
+elif page == "Dawn Chorus Overview":
+
+    # ── Dawn Chorus Tracker ──
+    st.subheader("Dawn Chorus Tracker")
+    dc_c1, dc_c2 = st.columns(2, gap="large")
+    with dc_c1:
+        dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
+    with dc_c2:
+        dc_time_mode = st.radio("Time format", ["Local (GMT/BST)", "UTC"], horizontal=True, key="dc_time_mode")
+
+    dc_df = filtered.dropna(subset=["timestamp"]).copy()
+    dc_df = dc_df[(dc_df["hour"] >= 3) & (dc_df["hour"] <= 10)]
+
+    if len(dc_df) == 0:
+        st.info("No detections in the dawn window (03:00-10:00) for current filters.")
+    else:
+        top_dawn = dc_df["Com_Name"].value_counts().head(dc_topn).index.tolist()
+        dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
+        dc_df["date"] = dc_df["timestamp"].dt.date
+
+        # Open-Meteo sunrise is in GMT (smooth). Detections are in local time.
+        # In UTC mode: convert detections local→UTC so both align with sunrise.
+        # In local mode: use raw detection hours; shift sunrise by +1 during BST.
+        use_utc = dc_time_mode == "UTC"
+        if use_utc:
+            dc_df["decimal_hour"] = to_utc_hour(dc_df["timestamp"])
+            hour_label = "Hour (UTC)"
+        else:
+            dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
+            hour_label = "Hour (local)"
+
+        earliest = (
+            dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
+            .min()
+            .reset_index(name="Earliest_Hour")
+        )
+
+        color_map = {
+            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+            for i, sp in enumerate(top_dawn)
+        }
+        fig = px.scatter(
+            earliest, x="date", y="Earliest_Hour",
+            color="Com_Name",
+            title="Earliest Detection by Day (Dawn Window)",
+            labels={"date": "Date", "Earliest_Hour": hour_label, "Com_Name": "Species"},
+            color_discrete_map=color_map,
+        )
+        fig.update_traces(marker=dict(size=5, opacity=0.7))
+
+        # Always show sunrise
+        w_lat = float(dc_df["Lat"].mode().iloc[0])
+        w_lon = float(dc_df["Lon"].mode().iloc[0])
+        w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
+        w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
+        _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
+        if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
+            sunrise_daily = sunrise_daily.copy()
+            if use_utc:
+                # Sunrise from Open-Meteo is already GMT/UTC
+                sunrise_daily["sunrise_hour"] = (
+                    sunrise_daily["sunrise"].dt.hour + sunrise_daily["sunrise"].dt.minute / 60.0
+                )
+            else:
+                # Convert GMT sunrise to local time (add 1 hour during BST)
+                sunrise_daily["sunrise_hour"] = sunrise_daily["sunrise"].apply(
+                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                ).dt.hour + sunrise_daily["sunrise"].apply(
+                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                ).dt.minute / 60.0
+            fig.add_scatter(
+                x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
+                mode="lines", line=dict(color="#c47a5a", width=2.5, dash="dash"),
+                name="Sunrise", showlegend=True,
+            )
+
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── First Detection vs Sunrise ──
+    st.subheader("First Detection vs Sunrise")
+
+    fds_df = filtered.dropna(subset=["timestamp"]).copy()
+    fds_df = fds_df[(fds_df["hour"] >= 3) & (fds_df["hour"] <= 10)].copy()
+
+    if len(fds_df) == 0:
+        st.info("No dawn detections (03:00-10:00) in the current filters.")
+    else:
+        fds_df["date"] = fds_df["timestamp"].dt.date
+
+        # Reuse the same time mode from the dawn chorus tracker
+        fds_utc = dc_time_mode == "UTC"
+
+        # Earliest detection per day
+        fds_earliest = (
+            fds_df.groupby("date")["timestamp"]
+            .min()
+            .reset_index(name="earliest_detection")
+        )
+        if fds_utc:
+            fds_earliest["earliest_hour"] = to_utc_hour(fds_earliest["earliest_detection"])
+        else:
+            fds_earliest["earliest_hour"] = (
+                fds_earliest["earliest_detection"].dt.hour
+                + fds_earliest["earliest_detection"].dt.minute / 60.0
+            )
+
+        # Fetch weather for sunrise data
+        fds_lat = float(fds_df["Lat"].mode().iloc[0])
+        fds_lon = float(fds_df["Lon"].mode().iloc[0])
+        fds_start = fds_df["timestamp"].min().strftime("%Y-%m-%d")
+        fds_end = fds_df["timestamp"].max().strftime("%Y-%m-%d")
+        fds_weather_hourly, fds_weather_daily = fetch_weather(fds_lat, fds_lon, fds_start, fds_end)
+
+        if fds_weather_daily is not None and "sunrise" in fds_weather_daily.columns:
+            sunrise_df = fds_weather_daily[["date", "sunrise"]].copy()
+            if fds_utc:
+                sunrise_df["sunrise_hour"] = (
+                    sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
+                )
+            else:
+                _sr_local = sunrise_df["sunrise"].apply(
+                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                )
+                sunrise_df["sunrise_hour"] = _sr_local.dt.hour + _sr_local.dt.minute / 60.0
+
+            # Temperature at sunrise hour
+            sunrise_temps = []
+            for _, row in sunrise_df.iterrows():
+                sr_row = fds_weather_daily[fds_weather_daily["date"] == row["date"]]
+                if len(sr_row):
+                    sr_hour = int(sr_row.iloc[0]["sunrise"].hour)
+                else:
+                    sr_hour = 6
+                match = fds_weather_hourly[
+                    (fds_weather_hourly["date"] == row["date"]) & (fds_weather_hourly["hour"] == sr_hour)
+                ] if fds_weather_hourly is not None else pd.DataFrame()
+                temp = match["temperature"].iloc[0] if len(match) > 0 else None
+                sunrise_temps.append({"date": row["date"], "sunrise_hour": row["sunrise_hour"],
+                                      "sunrise_temp": temp})
+            sunrise_temp_df = pd.DataFrame(sunrise_temps)
+
+            fds_merged = fds_earliest.merge(sunrise_temp_df, on="date", how="inner")
+            fds_merged = fds_merged.dropna(subset=["sunrise_temp"])
+
+            hour_suffix = "UTC" if fds_utc else "local"
+
+            if len(fds_merged) == 0:
+                st.info("No matching weather data for dawn detections.")
+            else:
+                d_l2, d_r2 = st.columns(2, gap="large")
+                with d_l2:
+                    fig = px.scatter(
+                        fds_merged, x="sunrise_temp", y="earliest_hour",
+                        title="First Detection vs Sunrise Temperature",
+                        labels={"sunrise_temp": "Temperature at sunrise (°C)",
+                                "earliest_hour": f"Earliest detection ({hour_suffix})"},
+                        hover_data={"date": True},
+                    )
+                    fig.update_traces(marker=dict(size=8, color=PRIMARY, opacity=0.7))
+                    if len(fds_merged) > 2:
+                        z = np.polyfit(fds_merged["sunrise_temp"], fds_merged["earliest_hour"], 1)
+                        x_range = np.linspace(fds_merged["sunrise_temp"].min(),
+                                              fds_merged["sunrise_temp"].max(), 50)
+                        fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
+                                        mode="lines", line=dict(color=TERTIARY, width=2, dash="dash"),
+                                        name="Trend", showlegend=True)
+                    st.plotly_chart(style_fig(fig), use_container_width=True)
+
+                with d_r2:
+                    fig = px.scatter(
+                        fds_merged, x="sunrise_hour", y="earliest_hour",
+                        title="First Detection vs Sunrise Time",
+                        labels={"sunrise_hour": f"Sunrise ({hour_suffix})",
+                                "earliest_hour": f"Earliest detection ({hour_suffix})"},
+                        hover_data={"date": True},
+                    )
+                    fig.update_traces(marker=dict(size=8, color=SECONDARY, opacity=0.7))
+                    # Add y=x reference line
+                    xy_range = [min(fds_merged["sunrise_hour"].min(), fds_merged["earliest_hour"].min()),
+                                max(fds_merged["sunrise_hour"].max(), fds_merged["earliest_hour"].max())]
+                    fig.add_scatter(x=xy_range, y=xy_range,
+                                    mode="lines", line=dict(color="#1a2416", width=1, dash="dot"),
+                                    name="Sunrise = Detection", showlegend=True)
+                    st.plotly_chart(style_fig(fig), use_container_width=True)
+        else:
+            st.info("Could not fetch sunrise data.")
 
 # ── Weather & Activity ──────────────────────────────────────────────────────
 elif page == "Weather & Activity":
@@ -1607,103 +1717,6 @@ elif page == "Weather & Activity":
                                     name="Trend", showlegend=True)
                 st.plotly_chart(style_fig(fig), use_container_width=True)
 
-            st.divider()
-
-            # ── 6. Dawn Chorus vs Sunrise Temperature ──
-            st.subheader("Dawn Chorus vs Sunrise Temperature")
-
-            w_dawn_time_mode = st.radio("Time format", ["Local (GMT/BST)", "UTC"], horizontal=True, key="w_dawn_time_mode")
-            w_dawn_utc = w_dawn_time_mode == "UTC"
-
-            dawn_df = w_df[(w_df["hour"] >= 3) & (w_df["hour"] <= 10)].copy()
-            if len(dawn_df) == 0:
-                st.info("No dawn detections (03:00-10:00) in the current filters.")
-            else:
-                # Earliest detection per day
-                dawn_earliest = (
-                    dawn_df.groupby("date")["timestamp"]
-                    .min()
-                    .reset_index(name="earliest_detection")
-                )
-                if w_dawn_utc:
-                    dawn_earliest["earliest_hour"] = to_utc_hour(dawn_earliest["earliest_detection"])
-                else:
-                    dawn_earliest["earliest_hour"] = (
-                        dawn_earliest["earliest_detection"].dt.hour
-                        + dawn_earliest["earliest_detection"].dt.minute / 60.0
-                    )
-
-                # Sunrise hour from daily weather
-                sunrise_df = weather_daily[["date", "sunrise"]].copy()
-                if w_dawn_utc:
-                    sunrise_df["sunrise_hour"] = (
-                        sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
-                    )
-                else:
-                    _sr_local = sunrise_df["sunrise"].apply(
-                        lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
-                    )
-                    sunrise_df["sunrise_hour"] = _sr_local.dt.hour + _sr_local.dt.minute / 60.0
-
-                # Temperature at sunrise hour
-                sunrise_temps = []
-                for _, row in sunrise_df.iterrows():
-                    sr_row = weather_daily[weather_daily["date"] == row["date"]]
-                    if len(sr_row):
-                        sr_hour = int(sr_row.iloc[0]["sunrise"].hour)
-                    else:
-                        sr_hour = 6
-                    match = weather_hourly[
-                        (weather_hourly["date"] == row["date"]) & (weather_hourly["hour"] == sr_hour)
-                    ]
-                    temp = match["temperature"].iloc[0] if len(match) > 0 else None
-                    sunrise_temps.append({"date": row["date"], "sunrise_hour": row["sunrise_hour"],
-                                          "sunrise_temp": temp})
-                sunrise_temp_df = pd.DataFrame(sunrise_temps)
-
-                dawn_merged = dawn_earliest.merge(sunrise_temp_df, on="date", how="inner")
-                dawn_merged = dawn_merged.dropna(subset=["sunrise_temp"])
-
-                hour_suffix = "UTC" if w_dawn_utc else "local"
-
-                if len(dawn_merged) == 0:
-                    st.info("No matching weather data for dawn detections.")
-                else:
-                    d_l2, d_r2 = st.columns(2, gap="large")
-                    with d_l2:
-                        fig = px.scatter(
-                            dawn_merged, x="sunrise_temp", y="earliest_hour",
-                            title="First Detection vs Sunrise Temperature",
-                            labels={"sunrise_temp": "Temperature at sunrise (°C)",
-                                    "earliest_hour": f"Earliest detection ({hour_suffix})"},
-                            hover_data={"date": True},
-                        )
-                        fig.update_traces(marker=dict(size=8, color=PRIMARY, opacity=0.7))
-                        if len(dawn_merged) > 2:
-                            z = np.polyfit(dawn_merged["sunrise_temp"], dawn_merged["earliest_hour"], 1)
-                            x_range = np.linspace(dawn_merged["sunrise_temp"].min(),
-                                                  dawn_merged["sunrise_temp"].max(), 50)
-                            fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
-                                            mode="lines", line=dict(color=TERTIARY, width=2, dash="dash"),
-                                            name="Trend", showlegend=True)
-                        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-                    with d_r2:
-                        fig = px.scatter(
-                            dawn_merged, x="sunrise_hour", y="earliest_hour",
-                            title="First Detection vs Sunrise Time",
-                            labels={"sunrise_hour": f"Sunrise ({hour_suffix})",
-                                    "earliest_hour": f"Earliest detection ({hour_suffix})"},
-                            hover_data={"date": True},
-                        )
-                        fig.update_traces(marker=dict(size=8, color=SECONDARY, opacity=0.7))
-                        # Add y=x reference line
-                        xy_range = [min(dawn_merged["sunrise_hour"].min(), dawn_merged["earliest_hour"].min()),
-                                    max(dawn_merged["sunrise_hour"].max(), dawn_merged["earliest_hour"].max())]
-                        fig.add_scatter(x=xy_range, y=xy_range,
-                                        mode="lines", line=dict(color="#1a2416", width=1, dash="dot"),
-                                        name="Sunrise = Detection", showlegend=True)
-                        st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Data Quality & Records ─────────────────────────────────────────────────
 elif page == "Data Quality & Records":
