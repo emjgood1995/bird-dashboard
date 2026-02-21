@@ -656,41 +656,91 @@ elif page == "Activity & Trends":
     fig.update_layout(xaxis=dict(dtick=1))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-    # Monthly
-    monthly = filtered.groupby("month").size().reset_index(name="Count")
-    fig = px.area(
-        monthly, x="month", y="Count",
-        title="Monthly Detection Trends",
-        labels={"month": "Month", "Count": "Detections"},
-    )
-    fig.update_traces(
-        line=dict(color=TERTIARY, width=2),
-        fillcolor="rgba(184,144,64,0.14)",
-        marker=dict(size=6, color=TERTIARY),
-        mode="lines+markers",
-    )
-    fig.update_layout(xaxis=dict(
-        dtick=1,
-        tickmode="array",
-        tickvals=list(MONTH_LABELS.keys()),
-        ticktext=list(MONTH_LABELS.values()),
-    ))
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    # Monthly & Weekly — with optional year comparison
+    trends_df = filtered.dropna(subset=["timestamp"]).copy()
+    trends_df["year"] = trends_df["timestamp"].dt.year.astype(int)
+    trends_years_avail = sorted(trends_df["year"].dropna().unique())
 
-    # Weekly
-    weekly = filtered.groupby("week").size().reset_index(name="Count")
-    fig = px.area(
-        weekly, x="week", y="Count",
-        title="Weekly Detection Trends",
-        labels={"week": "Week of year", "Count": "Detections"},
-    )
-    fig.update_traces(
-        line=dict(color=SECONDARY, width=2),
-        fillcolor="rgba(74,112,144,0.14)",
-        marker=dict(size=5, color=SECONDARY),
-        mode="lines+markers",
-    )
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    trends_cmp = st.checkbox("Compare years", value=False, key="trends_cmp_years")
+
+    if trends_cmp and len(trends_years_avail) >= 2:
+        default_trends_yrs = trends_years_avail[-2:] if len(trends_years_avail) >= 2 else trends_years_avail
+        trends_years = st.multiselect(
+            "Years to compare", trends_years_avail,
+            default=default_trends_yrs, key="trends_years",
+        )
+        if not trends_years:
+            st.info("Select at least one year.")
+        else:
+            t_df = trends_df[trends_df["year"].isin(trends_years)].copy()
+
+            # Monthly by year
+            monthly_yr = t_df.groupby(["year", "month"]).size().reset_index(name="Count")
+            monthly_yr["Year"] = monthly_yr["year"].astype(str)
+            fig = px.line(
+                monthly_yr, x="month", y="Count", color="Year",
+                title="Monthly Detection Trends by Year",
+                labels={"month": "Month", "Count": "Detections", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig.update_layout(xaxis=dict(
+                dtick=1,
+                tickmode="array",
+                tickvals=list(MONTH_LABELS.keys()),
+                ticktext=list(MONTH_LABELS.values()),
+            ))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            # Weekly by year
+            weekly_yr = t_df.groupby(["year", "week"]).size().reset_index(name="Count")
+            weekly_yr["Year"] = weekly_yr["year"].astype(str)
+            fig = px.line(
+                weekly_yr, x="week", y="Count", color="Year",
+                title="Weekly Detection Trends by Year",
+                labels={"week": "Week of year", "Count": "Detections", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=4))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+    else:
+        # Monthly — aggregated
+        monthly = filtered.groupby("month").size().reset_index(name="Count")
+        fig = px.area(
+            monthly, x="month", y="Count",
+            title="Monthly Detection Trends",
+            labels={"month": "Month", "Count": "Detections"},
+        )
+        fig.update_traces(
+            line=dict(color=TERTIARY, width=2),
+            fillcolor="rgba(184,144,64,0.14)",
+            marker=dict(size=6, color=TERTIARY),
+            mode="lines+markers",
+        )
+        fig.update_layout(xaxis=dict(
+            dtick=1,
+            tickmode="array",
+            tickvals=list(MONTH_LABELS.keys()),
+            ticktext=list(MONTH_LABELS.values()),
+        ))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        # Weekly — aggregated
+        weekly = filtered.groupby("week").size().reset_index(name="Count")
+        fig = px.area(
+            weekly, x="week", y="Count",
+            title="Weekly Detection Trends",
+            labels={"week": "Week of year", "Count": "Detections"},
+        )
+        fig.update_traces(
+            line=dict(color=SECONDARY, width=2),
+            fillcolor="rgba(74,112,144,0.14)",
+            marker=dict(size=5, color=SECONDARY),
+            mode="lines+markers",
+        )
+        st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Community & Status ──────────────────────────────────────────────────────
 elif page == "Community & Status":
@@ -1026,28 +1076,63 @@ elif page == "Ecology & Phenology":
     # ── Species Richness Over Time ──
     st.subheader("Species Richness Over Time")
 
-    tmp = filtered.dropna(subset=["timestamp"]).copy()
-    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
+    rich_df = filtered.dropna(subset=["timestamp"]).copy()
+    rich_df["year"] = rich_df["timestamp"].dt.year.astype(int)
+    rich_years_avail = sorted(rich_df["year"].dropna().unique())
 
-    richness_month = (
-        tmp.groupby("month_period")["Com_Name"]
-        .nunique()
-        .reset_index(name="Unique_Species")
-    )
+    rich_cmp = st.checkbox("Compare years", value=False, key="rich_cmp_years")
 
-    fig = px.area(
-        richness_month,
-        x="month_period", y="Unique_Species",
-        title="Unique Species per Month",
-        labels={"month_period": "Month", "Unique_Species": "Unique species"},
-    )
-    fig.update_traces(
-        line=dict(color=PRIMARY, width=2),
-        fillcolor="rgba(61,107,68,0.14)",
-        marker=dict(size=5, color=PRIMARY),
-        mode="lines+markers",
-    )
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    if rich_cmp and len(rich_years_avail) >= 2:
+        default_rich_yrs = rich_years_avail[-2:] if len(rich_years_avail) >= 2 else rich_years_avail
+        rich_years = st.multiselect(
+            "Years to compare", rich_years_avail,
+            default=default_rich_yrs, key="rich_years",
+        )
+        if not rich_years:
+            st.info("Select at least one year.")
+        else:
+            r_df = rich_df[rich_df["year"].isin(rich_years)].copy()
+            richness_yr = (
+                r_df.groupby(["year", "month"])["Com_Name"]
+                .nunique()
+                .reset_index(name="Unique_Species")
+            )
+            richness_yr["Year"] = richness_yr["year"].astype(str)
+            fig = px.line(
+                richness_yr, x="month", y="Unique_Species", color="Year",
+                title="Unique Species per Month by Year",
+                labels={"month": "Month", "Unique_Species": "Unique species", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig.update_layout(xaxis=dict(
+                dtick=1,
+                tickmode="array",
+                tickvals=list(MONTH_LABELS.keys()),
+                ticktext=list(MONTH_LABELS.values()),
+            ))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+    else:
+        rich_df["month_period"] = rich_df["timestamp"].dt.to_period("M").astype(str)
+        richness_month = (
+            rich_df.groupby("month_period")["Com_Name"]
+            .nunique()
+            .reset_index(name="Unique_Species")
+        )
+        fig = px.area(
+            richness_month,
+            x="month_period", y="Unique_Species",
+            title="Unique Species per Month",
+            labels={"month_period": "Month", "Unique_Species": "Unique species"},
+        )
+        fig.update_traces(
+            line=dict(color=PRIMARY, width=2),
+            fillcolor="rgba(61,107,68,0.14)",
+            marker=dict(size=5, color=PRIMARY),
+            mode="lines+markers",
+        )
+        st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
 
