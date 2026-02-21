@@ -450,10 +450,10 @@ if month_mode == "Choose month" and chosen_month:
 
 st.sidebar.divider()
 
-exclude_review = st.sidebar.checkbox("Exclude 'Review Recording' from graphs", value=True)
+exclude_review = st.sidebar.checkbox("Exclude 'Review Recording' & 'False Positive'", value=True)
 review_df = filtered[filtered["UK_Status"] == "Review Recording"].copy()
 if exclude_review:
-    filtered = filtered[filtered["UK_Status"] != "Review Recording"].copy()
+    filtered = filtered[~filtered["UK_Status"].isin(["Review Recording", "False Positive"])].copy()
 
 # ---- KPI cards ----
 kpi1, kpi2, kpi3 = st.columns(3)
