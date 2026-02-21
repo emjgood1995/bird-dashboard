@@ -410,6 +410,7 @@ page = st.sidebar.radio(
         "Dawn Chorus Overview",
         "Weather & Activity",
         "Data Quality & Records",
+        "Records",
         "Species Explorer",
     ],
     label_visibility="collapsed",
@@ -1805,99 +1806,6 @@ elif page == "Data Quality & Records":
 
     st.divider()
 
-    # ── Personal Records ──
-    st.subheader("Personal Records")
-
-    pr_df = filtered.dropna(subset=["timestamp"]).copy()
-    pr_df["year"] = pr_df["timestamp"].dt.year
-
-    pr_years_avail = sorted(pr_df["year"].dropna().unique())
-    pr_years = st.multiselect(
-        "Filter to years", pr_years_avail,
-        default=pr_years_avail, key="pr_years",
-    )
-    pr_rarest_n = st.slider("N rarest species", 5, 30, 15, key="pr_rarest_n")
-
-    if pr_years:
-        pr_df = pr_df[pr_df["year"].isin(pr_years)].copy()
-
-    if len(pr_df) == 0:
-        st.info("No data available for personal records.")
-    else:
-        # Earliest / latest detection
-        det_range = pr_df.groupby("Com_Name")["timestamp"].agg(["min", "max"]).reset_index()
-        det_range.columns = ["Species", "Earliest_Detection", "Latest_Detection"]
-        det_range["Earliest"] = det_range["Earliest_Detection"].dt.strftime("%m-%d")
-        det_range["Latest"] = det_range["Latest_Detection"].dt.strftime("%m-%d")
-
-        pr_k1, pr_k2 = st.columns(2)
-        pr_k1.metric("Total species recorded", det_range["Species"].nunique())
-        pr_k2.metric("Date range", f"{pr_df['timestamp'].min().strftime('%Y-%m-%d')} to {pr_df['timestamp'].max().strftime('%Y-%m-%d')}")
-
-        st.dataframe(
-            det_range[["Species", "Earliest", "Latest"]].sort_values("Earliest"),
-            hide_index=True,
-        )
-
-        st.divider()
-
-        # Rarest visitors
-        st.subheader("Rarest Visitors")
-        rarest = (
-            pr_df["Com_Name"].value_counts()
-            .tail(pr_rarest_n)
-            .reset_index()
-        )
-        rarest.columns = ["Species", "Count"]
-        rarest = rarest.sort_values("Count", ascending=True)
-
-        fig = px.bar(
-            rarest, x="Count", y="Species", orientation="h",
-            title=f"Top {pr_rarest_n} Rarest Species (fewest detections)",
-            labels={"Count": "Detections", "Species": ""},
-            color="Count",
-            color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
-        )
-        fig.update_coloraxes(showscale=False)
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-        st.divider()
-
-        # Longest streak
-        st.subheader("Longest Detection Streak")
-
-        def longest_streak(dates):
-            """Compute longest run of consecutive days."""
-            if len(dates) == 0:
-                return 0
-            unique_days = sorted(set(dates))
-            best = 1
-            current = 1
-            for i in range(1, len(unique_days)):
-                if (unique_days[i] - unique_days[i - 1]).days == 1:
-                    current += 1
-                    best = max(best, current)
-                else:
-                    current = 1
-            return best
-
-        pr_df["det_date"] = pr_df["timestamp"].dt.date
-        streak_data = (
-            pr_df.groupby("Com_Name")["det_date"]
-            .apply(lambda x: longest_streak(x.tolist()))
-            .reset_index(name="Longest_Streak")
-            .sort_values("Longest_Streak", ascending=False)
-        )
-
-        st.metric("Top streak", f"{streak_data['Longest_Streak'].max()} days" if len(streak_data) else "—")
-        st.dataframe(
-            streak_data.rename(columns={"Com_Name": "Species", "Longest_Streak": "Longest Streak (days)"}),
-            hide_index=True,
-        )
-
-    st.divider()
-
     # ── Review Recording: Top Species to Check + Confidence by Hour ──
     st.subheader("Review Recording: Top Species to Check")
 
@@ -2049,6 +1957,107 @@ elif page == "Data Quality & Records":
                     st.error(
                         f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}"
                     )
+
+# ── Records ───────────────────────────────────────────────────────────────
+elif page == "Records":
+
+    # ── Personal Records ──
+    st.subheader("Personal Records")
+
+    pr_df = filtered.dropna(subset=["timestamp"]).copy()
+    pr_df["year"] = pr_df["timestamp"].dt.year
+
+    pr_years_avail = sorted(pr_df["year"].dropna().unique())
+    pr_years = st.multiselect(
+        "Filter to years", pr_years_avail,
+        default=pr_years_avail, key="pr_years",
+    )
+    pr_rarest_n = st.slider("N rarest species", 5, 30, 15, key="pr_rarest_n")
+
+    if pr_years:
+        pr_df = pr_df[pr_df["year"].isin(pr_years)].copy()
+
+    if len(pr_df) == 0:
+        st.info("No data available for personal records.")
+    else:
+        # Earliest / latest detection
+        det_range = pr_df.groupby("Com_Name")["timestamp"].agg(["min", "max"]).reset_index()
+        det_range.columns = ["Species", "Earliest_Detection", "Latest_Detection"]
+        det_range["Earliest"] = det_range["Earliest_Detection"].dt.strftime("%m-%d")
+        det_range["Latest"] = det_range["Latest_Detection"].dt.strftime("%m-%d")
+
+        pr_k1, pr_k2 = st.columns(2)
+        pr_k1.metric("Total species recorded", det_range["Species"].nunique())
+        pr_k2.metric("Date range", f"{pr_df['timestamp'].min().strftime('%Y-%m-%d')} to {pr_df['timestamp'].max().strftime('%Y-%m-%d')}")
+
+        st.dataframe(
+            det_range[["Species", "Earliest", "Latest"]].sort_values("Earliest"),
+            hide_index=True,
+        )
+
+    st.divider()
+
+    # ── Rarest Visitors ──
+    st.subheader("Rarest Visitors")
+
+    if len(pr_df) == 0:
+        st.info("No data available.")
+    else:
+        rarest = (
+            pr_df["Com_Name"].value_counts()
+            .tail(pr_rarest_n)
+            .reset_index()
+        )
+        rarest.columns = ["Species", "Count"]
+        rarest = rarest.sort_values("Count", ascending=True)
+
+        fig = px.bar(
+            rarest, x="Count", y="Species", orientation="h",
+            title=f"Top {pr_rarest_n} Rarest Species (fewest detections)",
+            labels={"Count": "Detections", "Species": ""},
+            color="Count",
+            color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
+        )
+        fig.update_coloraxes(showscale=False)
+        fig.update_traces(marker_line_width=0)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── Longest Detection Streak ──
+    st.subheader("Longest Detection Streak")
+
+    if len(pr_df) == 0:
+        st.info("No data available.")
+    else:
+        def longest_streak(dates):
+            """Compute longest run of consecutive days."""
+            if len(dates) == 0:
+                return 0
+            unique_days = sorted(set(dates))
+            best = 1
+            current = 1
+            for i in range(1, len(unique_days)):
+                if (unique_days[i] - unique_days[i - 1]).days == 1:
+                    current += 1
+                    best = max(best, current)
+                else:
+                    current = 1
+            return best
+
+        pr_df["det_date"] = pr_df["timestamp"].dt.date
+        streak_data = (
+            pr_df.groupby("Com_Name")["det_date"]
+            .apply(lambda x: longest_streak(x.tolist()))
+            .reset_index(name="Longest_Streak")
+            .sort_values("Longest_Streak", ascending=False)
+        )
+
+        st.metric("Top streak", f"{streak_data['Longest_Streak'].max()} days" if len(streak_data) else "—")
+        st.dataframe(
+            streak_data.rename(columns={"Com_Name": "Species", "Longest_Streak": "Longest Streak (days)"}),
+            hide_index=True,
+        )
 
 # ── Species Explorer ──────────────────────────────────────────────────────
 elif page == "Species Explorer":
