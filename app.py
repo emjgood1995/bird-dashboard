@@ -406,7 +406,7 @@ page = st.sidebar.radio(
     "View",
     [
         "Overview",
-        "Community & Status",
+        "Community",
         "Dawn Chorus Overview",
         "Weather & Activity",
         "Data Quality",
@@ -744,8 +744,8 @@ if page == "Overview":
         )
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Community & Status ──────────────────────────────────────────────────────
-elif page == "Community & Status":
+# ── Community ──────────────────────────────────────────────────────
+elif page == "Community":
 
     def tod_chart(data: pd.DataFrame, title: str, by_species: bool, by_status: bool):
         """Render one Activity by Hour chart."""
