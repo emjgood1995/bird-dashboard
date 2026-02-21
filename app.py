@@ -1973,7 +1973,6 @@ elif page == "Records":
         "Filter to years", pr_years_avail,
         default=pr_years_avail, key="pr_years",
     )
-    pr_rarest_n = st.slider("N rarest species", 5, 30, 15, key="pr_rarest_n")
 
     if pr_years:
         pr_df = pr_df[pr_df["year"].isin(pr_years)].copy()
@@ -2003,6 +2002,7 @@ elif page == "Records":
     # ── Rarest Visitors ──
     st.subheader("Rarest Visitors")
     st.caption("Species with the fewest total detections — when they appeared and at what confidence.")
+    pr_rarest_n = st.slider("N rarest species", 5, 30, 15, key="pr_rarest_n")
 
     if len(pr_df) == 0:
         st.info("No data available.")
