@@ -5,6 +5,8 @@ import pathlib
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import numpy as np
 import openpyxl
@@ -330,6 +332,49 @@ def load_data():
 
 df = load_data()
 
+
+@st.cache_data(ttl=86400)
+def fetch_weather(lat: float, lon: float, start_date: str, end_date: str):
+    """Fetch historical hourly weather from Open-Meteo and return a DataFrame."""
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat}&longitude={lon}"
+        f"&start_date={start_date}&end_date={end_date}"
+        f"&hourly=temperature_2m,precipitation,wind_speed_10m,cloud_cover,pressure_msl"
+        f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset"
+        f"&timezone=Europe%2FLondon"
+    )
+    try:
+        resp = requests.get(url, timeout=30)
+        if resp.status_code != 200:
+            return None, None
+        data = resp.json()
+
+        hourly = pd.DataFrame({
+            "datetime": pd.to_datetime(data["hourly"]["time"]),
+            "temperature": data["hourly"]["temperature_2m"],
+            "precipitation": data["hourly"]["precipitation"],
+            "wind_speed": data["hourly"]["wind_speed_10m"],
+            "cloud_cover": data["hourly"]["cloud_cover"],
+            "pressure": data["hourly"]["pressure_msl"],
+        })
+        hourly["date"] = hourly["datetime"].dt.date
+        hourly["hour"] = hourly["datetime"].dt.hour
+
+        daily = pd.DataFrame({
+            "date": pd.to_datetime(data["daily"]["time"]).date,
+            "temp_max": data["daily"]["temperature_2m_max"],
+            "temp_min": data["daily"]["temperature_2m_min"],
+            "precip_sum": data["daily"]["precipitation_sum"],
+            "wind_max": data["daily"]["wind_speed_10m_max"],
+            "sunrise": pd.to_datetime(data["daily"]["sunrise"]),
+            "sunset": pd.to_datetime(data["daily"]["sunset"]),
+        })
+        return hourly, daily
+    except Exception:
+        return None, None
+
+
 st.title("🐦 Garden Bird Dashboard")
 st.caption("Detections across time, seasons, and community composition.")
 
@@ -343,6 +388,7 @@ page = st.sidebar.radio(
         "Activity & Trends",
         "Community & Status",
         "Ecology & Phenology",
+        "Weather & Activity",
         "Data Quality & Records",
         "Species Explorer",
     ],
@@ -1262,6 +1308,327 @@ elif page == "Ecology & Phenology":
         )
         fig_r.update_traces(line=dict(color=TERTIARY, width=2), marker=dict(size=5, color=TERTIARY))
         st.plotly_chart(style_fig(fig_r), use_container_width=True)
+
+# ── Weather & Activity ──────────────────────────────────────────────────────
+elif page == "Weather & Activity":
+
+    w_df = filtered.dropna(subset=["timestamp"]).copy()
+
+    if len(w_df) == 0:
+        st.info("No detection data available for weather analysis.")
+    else:
+        # Get location and date range from the data
+        w_lat = float(w_df["Lat"].mode().iloc[0])
+        w_lon = float(w_df["Lon"].mode().iloc[0])
+        w_start = w_df["timestamp"].min().strftime("%Y-%m-%d")
+        w_end = w_df["timestamp"].max().strftime("%Y-%m-%d")
+
+        weather_hourly, weather_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
+
+        if weather_hourly is None or weather_daily is None:
+            st.error("Could not fetch weather data from Open-Meteo.")
+        else:
+            # ── Prepare merged datasets ──
+            w_df["date"] = w_df["timestamp"].dt.date
+            w_df["hour"] = w_df["timestamp"].dt.hour
+
+            # Daily detection counts
+            daily_det = w_df.groupby("date").agg(
+                det_count=("Com_Name", "size"),
+                species_count=("Com_Name", "nunique"),
+            ).reset_index()
+            daily_merged = daily_det.merge(weather_daily, on="date", how="inner")
+
+            # Hourly detection counts
+            hourly_det = w_df.groupby(["date", "hour"]).size().reset_index(name="det_count")
+            hourly_merged = hourly_det.merge(weather_hourly, on=["date", "hour"], how="inner")
+
+            # ── 1. Detections vs Temperature ──
+            st.subheader("Detections vs Temperature")
+
+            fig = px.scatter(
+                daily_merged, x="temp_max", y="det_count",
+                color="precip_sum",
+                color_continuous_scale=[[0, "#f5f3ee"], [0.5, "#6a90b0"], [1, "#4a5c70"]],
+                title="Daily Detections vs Max Temperature",
+                labels={"temp_max": "Max temperature (°C)", "det_count": "Detections",
+                        "precip_sum": "Rainfall (mm)"},
+                hover_data={"date": True},
+            )
+            fig.update_traces(marker=dict(size=8, opacity=0.7, line=dict(width=0.5, color="#1a2416")))
+            # Add trendline manually
+            if len(daily_merged) > 2:
+                z = np.polyfit(daily_merged["temp_max"].dropna(), daily_merged.loc[daily_merged["temp_max"].notna(), "det_count"], 1)
+                x_range = np.linspace(daily_merged["temp_max"].min(), daily_merged["temp_max"].max(), 50)
+                fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
+                                mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
+                                name="Trend", showlegend=True)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            st.divider()
+
+            # ── 2. Rainy vs Dry Days ──
+            st.subheader("Rainy vs Dry Days")
+
+            # Merge hourly weather with hourly detections for activity profile
+            rain_thresh = st.slider("Rain threshold (mm/day)", 0.0, 10.0, 1.0, key="w_rain_thresh")
+
+            rain_days = set(weather_daily[weather_daily["precip_sum"] >= rain_thresh]["date"].tolist())
+            w_df["day_type"] = w_df["date"].apply(lambda d: "Rainy" if d in rain_days else "Dry")
+
+            rain_profile = w_df.groupby(["hour", "day_type"]).size().reset_index(name="Count")
+            # Normalise by number of days of each type
+            n_rain = max(len(rain_days & set(w_df["date"].unique())), 1)
+            n_dry = max(len(set(w_df["date"].unique()) - rain_days), 1)
+            rain_profile["Avg_Detections"] = rain_profile.apply(
+                lambda r: r["Count"] / n_rain if r["day_type"] == "Rainy" else r["Count"] / n_dry,
+                axis=1,
+            )
+
+            fig = px.line(
+                rain_profile, x="hour", y="Avg_Detections", color="day_type",
+                title=f"Average Hourly Activity: Rainy vs Dry Days (threshold: {rain_thresh}mm)",
+                labels={"hour": "Hour of day", "Avg_Detections": "Avg detections per day",
+                        "day_type": "Day type"},
+                color_discrete_map={"Rainy": SECONDARY, "Dry": TERTIARY},
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig.update_layout(xaxis=dict(dtick=1))
+
+            # Add KPI cards
+            r_k1, r_k2, r_k3 = st.columns(3)
+            r_k1.metric("Rainy days", f"{n_rain}")
+            r_k2.metric("Dry days", f"{n_dry}")
+            avg_rain_det = daily_merged[daily_merged["date"].isin(rain_days)]["det_count"].mean()
+            avg_dry_det = daily_merged[~daily_merged["date"].isin(rain_days)]["det_count"].mean()
+            r_k3.metric("Avg detections",
+                        f"Rainy: {avg_rain_det:.0f}" if pd.notna(avg_rain_det) else "—",
+                        f"Dry: {avg_dry_det:.0f}" if pd.notna(avg_dry_det) else None)
+
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            st.divider()
+
+            # ── 3. Wind Speed Impact ──
+            st.subheader("Wind Speed Impact")
+
+            wind_bins = [0, 10, 20, 30, 100]
+            wind_labels = ["Calm (0-10)", "Light (10-20)", "Moderate (20-30)", "Strong (30+)"]
+            daily_merged["wind_bracket"] = pd.cut(
+                daily_merged["wind_max"], bins=wind_bins, labels=wind_labels, right=False,
+            )
+
+            wind_agg = daily_merged.groupby("wind_bracket", observed=True).agg(
+                avg_det=("det_count", "mean"),
+                avg_species=("species_count", "mean"),
+                day_count=("date", "count"),
+            ).reset_index()
+
+            w_l, w_r = st.columns(2, gap="large")
+            with w_l:
+                fig = px.bar(
+                    wind_agg, x="wind_bracket", y="avg_det",
+                    title="Avg Daily Detections by Wind Speed",
+                    labels={"wind_bracket": "Wind speed (km/h)", "avg_det": "Avg detections"},
+                    text="day_count",
+                )
+                fig.update_traces(marker_color=PRIMARY, marker_line_width=0,
+                                  texttemplate="%{text} days", textposition="outside")
+                st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            with w_r:
+                fig = px.bar(
+                    wind_agg, x="wind_bracket", y="avg_species",
+                    title="Avg Species Richness by Wind Speed",
+                    labels={"wind_bracket": "Wind speed (km/h)", "avg_species": "Avg unique species"},
+                    text="day_count",
+                )
+                fig.update_traces(marker_color=SECONDARY, marker_line_width=0,
+                                  texttemplate="%{text} days", textposition="outside")
+                st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            st.divider()
+
+            # ── 4. Weather Overlay on Monthly Trends ──
+            st.subheader("Monthly Trends with Weather")
+
+            daily_merged["month"] = pd.to_datetime(daily_merged["date"]).dt.month
+            monthly_weather = daily_merged.groupby("month").agg(
+                total_det=("det_count", "sum"),
+                avg_temp=("temp_max", "mean"),
+                total_rain=("precip_sum", "sum"),
+            ).reset_index()
+
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            fig.add_trace(
+                go.Bar(x=monthly_weather["month"], y=monthly_weather["total_det"],
+                       name="Detections", marker_color=PRIMARY, opacity=0.7),
+                secondary_y=False,
+            )
+            fig.add_trace(
+                go.Scatter(x=monthly_weather["month"], y=monthly_weather["avg_temp"],
+                           name="Avg max temp (°C)", mode="lines+markers",
+                           line=dict(color="#c47a5a", width=2.5),
+                           marker=dict(size=7, color="#c47a5a")),
+                secondary_y=True,
+            )
+            fig.update_layout(
+                title="Monthly Detections & Temperature",
+                xaxis=dict(dtick=1, tickmode="array",
+                           tickvals=list(MONTH_LABELS.keys()),
+                           ticktext=list(MONTH_LABELS.values())),
+                legend=dict(x=0.01, y=0.99),
+            )
+            fig.update_yaxes(title_text="Detections", secondary_y=False)
+            fig.update_yaxes(title_text="Temperature (°C)", secondary_y=True)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            # Rainfall overlay
+            fig2 = make_subplots(specs=[[{"secondary_y": True}]])
+            fig2.add_trace(
+                go.Bar(x=monthly_weather["month"], y=monthly_weather["total_det"],
+                       name="Detections", marker_color=PRIMARY, opacity=0.7),
+                secondary_y=False,
+            )
+            fig2.add_trace(
+                go.Bar(x=monthly_weather["month"], y=monthly_weather["total_rain"],
+                       name="Total rainfall (mm)", marker_color=SECONDARY, opacity=0.5),
+                secondary_y=True,
+            )
+            fig2.update_layout(
+                title="Monthly Detections & Rainfall",
+                xaxis=dict(dtick=1, tickmode="array",
+                           tickvals=list(MONTH_LABELS.keys()),
+                           ticktext=list(MONTH_LABELS.values())),
+                barmode="group",
+                legend=dict(x=0.01, y=0.99),
+            )
+            fig2.update_yaxes(title_text="Detections", secondary_y=False)
+            fig2.update_yaxes(title_text="Rainfall (mm)", secondary_y=True)
+            st.plotly_chart(style_fig(fig2), use_container_width=True)
+
+            st.divider()
+
+            # ── 5. Species Diversity vs Conditions ──
+            st.subheader("Species Diversity vs Conditions")
+
+            d_l, d_r = st.columns(2, gap="large")
+            with d_l:
+                fig = px.scatter(
+                    daily_merged, x="temp_max", y="species_count",
+                    title="Unique Species vs Temperature",
+                    labels={"temp_max": "Max temperature (°C)", "species_count": "Unique species"},
+                    color="precip_sum",
+                    color_continuous_scale=[[0, "#f5f3ee"], [0.5, "#6a90b0"], [1, "#4a5c70"]],
+                )
+                fig.update_traces(marker=dict(size=8, opacity=0.7))
+                if len(daily_merged) > 2:
+                    mask = daily_merged["temp_max"].notna()
+                    z = np.polyfit(daily_merged.loc[mask, "temp_max"], daily_merged.loc[mask, "species_count"], 1)
+                    x_range = np.linspace(daily_merged["temp_max"].min(), daily_merged["temp_max"].max(), 50)
+                    fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
+                                    mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
+                                    name="Trend", showlegend=True)
+                st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            with d_r:
+                fig = px.scatter(
+                    daily_merged, x="wind_max", y="species_count",
+                    title="Unique Species vs Wind Speed",
+                    labels={"wind_max": "Max wind speed (km/h)", "species_count": "Unique species"},
+                    color="precip_sum",
+                    color_continuous_scale=[[0, "#f5f3ee"], [0.5, "#6a90b0"], [1, "#4a5c70"]],
+                )
+                fig.update_traces(marker=dict(size=8, opacity=0.7))
+                if len(daily_merged) > 2:
+                    mask = daily_merged["wind_max"].notna()
+                    z = np.polyfit(daily_merged.loc[mask, "wind_max"], daily_merged.loc[mask, "species_count"], 1)
+                    x_range = np.linspace(daily_merged["wind_max"].min(), daily_merged["wind_max"].max(), 50)
+                    fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
+                                    mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
+                                    name="Trend", showlegend=True)
+                st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            st.divider()
+
+            # ── 6. Dawn Chorus vs Sunrise Temperature ──
+            st.subheader("Dawn Chorus vs Sunrise Temperature")
+
+            dawn_df = w_df[(w_df["hour"] >= 3) & (w_df["hour"] <= 10)].copy()
+            if len(dawn_df) == 0:
+                st.info("No dawn detections (03:00-10:00) in the current filters.")
+            else:
+                # Earliest detection per day
+                dawn_earliest = (
+                    dawn_df.groupby("date")["timestamp"]
+                    .min()
+                    .reset_index(name="earliest_detection")
+                )
+                dawn_earliest["earliest_hour"] = (
+                    dawn_earliest["earliest_detection"].dt.hour
+                    + dawn_earliest["earliest_detection"].dt.minute / 60.0
+                )
+
+                # Sunrise hour from daily weather
+                sunrise_df = weather_daily[["date", "sunrise"]].copy()
+                sunrise_df["sunrise_hour"] = (
+                    sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
+                )
+
+                # Temperature at sunrise hour
+                sunrise_temps = []
+                for _, row in sunrise_df.iterrows():
+                    sr_hour = int(row["sunrise"].hour)
+                    match = weather_hourly[
+                        (weather_hourly["date"] == row["date"]) & (weather_hourly["hour"] == sr_hour)
+                    ]
+                    temp = match["temperature"].iloc[0] if len(match) > 0 else None
+                    sunrise_temps.append({"date": row["date"], "sunrise_hour": row["sunrise_hour"],
+                                          "sunrise_temp": temp})
+                sunrise_temp_df = pd.DataFrame(sunrise_temps)
+
+                dawn_merged = dawn_earliest.merge(sunrise_temp_df, on="date", how="inner")
+                dawn_merged = dawn_merged.dropna(subset=["sunrise_temp"])
+
+                if len(dawn_merged) == 0:
+                    st.info("No matching weather data for dawn detections.")
+                else:
+                    d_l2, d_r2 = st.columns(2, gap="large")
+                    with d_l2:
+                        fig = px.scatter(
+                            dawn_merged, x="sunrise_temp", y="earliest_hour",
+                            title="First Detection vs Sunrise Temperature",
+                            labels={"sunrise_temp": "Temperature at sunrise (°C)",
+                                    "earliest_hour": "Earliest detection (hour)"},
+                            hover_data={"date": True},
+                        )
+                        fig.update_traces(marker=dict(size=8, color=PRIMARY, opacity=0.7))
+                        if len(dawn_merged) > 2:
+                            z = np.polyfit(dawn_merged["sunrise_temp"], dawn_merged["earliest_hour"], 1)
+                            x_range = np.linspace(dawn_merged["sunrise_temp"].min(),
+                                                  dawn_merged["sunrise_temp"].max(), 50)
+                            fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
+                                            mode="lines", line=dict(color=TERTIARY, width=2, dash="dash"),
+                                            name="Trend", showlegend=True)
+                        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+                    with d_r2:
+                        fig = px.scatter(
+                            dawn_merged, x="sunrise_hour", y="earliest_hour",
+                            title="First Detection vs Sunrise Time",
+                            labels={"sunrise_hour": "Sunrise (hour)",
+                                    "earliest_hour": "Earliest detection (hour)"},
+                            hover_data={"date": True},
+                        )
+                        fig.update_traces(marker=dict(size=8, color=SECONDARY, opacity=0.7))
+                        # Add y=x reference line
+                        xy_range = [min(dawn_merged["sunrise_hour"].min(), dawn_merged["earliest_hour"].min()),
+                                    max(dawn_merged["sunrise_hour"].max(), dawn_merged["earliest_hour"].max())]
+                        fig.add_scatter(x=xy_range, y=xy_range,
+                                        mode="lines", line=dict(color="#1a2416", width=1, dash="dot"),
+                                        name="Sunrise = Detection", showlegend=True)
+                        st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Data Quality & Records ─────────────────────────────────────────────────
 elif page == "Data Quality & Records":
