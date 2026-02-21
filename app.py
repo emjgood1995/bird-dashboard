@@ -580,15 +580,17 @@ elif page == "Trends":
     yearly = filtered.dropna(subset=["timestamp"]).copy()
     yearly = yearly.groupby("year").size().reset_index(name="Count")
     yearly["year"] = yearly["year"].astype(int)
-    fig = px.bar(
+    fig = px.area(
         yearly, x="year", y="Count",
         title="Yearly Detection Trends",
         labels={"year": "Year", "Count": "Detections"},
-        color="Count",
-        color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
     )
-    fig.update_coloraxes(showscale=False)
-    fig.update_traces(marker_line_width=0)
+    fig.update_traces(
+        line=dict(color=PRIMARY, width=2),
+        fillcolor="rgba(61,107,68,0.14)",
+        marker=dict(size=6, color=PRIMARY),
+        mode="lines+markers",
+    )
     fig.update_layout(xaxis=dict(dtick=1))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
