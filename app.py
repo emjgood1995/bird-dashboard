@@ -458,19 +458,54 @@ if page == "Most Common Species":
 
 # ── Time of Day ─────────────────────────────────────────────────────────────
 elif page == "Time of Day":
-    hourly = filtered.groupby("hour").size().reset_index(name="Count")
-    fig = px.area(
-        hourly, x="hour", y="Count",
-        title="Activity by Hour of Day",
-        labels={"hour": "Hour of day", "Count": "Detections"},
-    )
-    fig.update_traces(
-        line=dict(color=PRIMARY, width=2),
-        fillcolor="rgba(61,107,68,0.14)",
-        marker=dict(size=5, color=PRIMARY),
-        mode="lines+markers",
-    )
-    fig.update_layout(xaxis=dict(dtick=1))
+    show_by_species = st.checkbox("Show by species", value=False, key="tod_by_species")
+
+    if show_by_species:
+        top_sp = filtered["Com_Name"].value_counts().head(20).index.tolist()
+        tod_df = filtered[filtered["Com_Name"].isin(top_sp)].copy()
+        sp_hour = tod_df.groupby(["hour", "Com_Name"]).size().reset_index(name="Count")
+
+        sp_color_map = {
+            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+            for i, sp in enumerate(top_sp)
+        }
+
+        fig = px.area(
+            sp_hour, x="hour", y="Count",
+            color="Com_Name",
+            title="Activity by Hour of Day · Top 20 Species",
+            labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
+            category_orders={"Com_Name": top_sp},
+            color_discrete_map=sp_color_map,
+        )
+        fig.update_layout(xaxis=dict(dtick=1))
+        fig.update_traces(marker_line_width=0)
+
+        # Add total trendline on top
+        hourly = filtered.groupby("hour").size().reset_index(name="Count")
+        fig.add_scatter(
+            x=hourly["hour"], y=hourly["Count"],
+            mode="lines+markers",
+            line=dict(color="#1a2416", width=2.5, dash="dot"),
+            marker=dict(size=5, color="#1a2416"),
+            name="Total",
+            showlegend=True,
+        )
+    else:
+        hourly = filtered.groupby("hour").size().reset_index(name="Count")
+        fig = px.area(
+            hourly, x="hour", y="Count",
+            title="Activity by Hour of Day",
+            labels={"hour": "Hour of day", "Count": "Detections"},
+        )
+        fig.update_traces(
+            line=dict(color=PRIMARY, width=2),
+            fillcolor="rgba(61,107,68,0.14)",
+            marker=dict(size=5, color=PRIMARY),
+            mode="lines+markers",
+        )
+        fig.update_layout(xaxis=dict(dtick=1))
+
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Weekly Trends ───────────────────────────────────────────────────────────
