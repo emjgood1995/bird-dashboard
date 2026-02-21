@@ -834,27 +834,32 @@ elif page == "Community & Status":
     st.subheader("Status Over Time")
 
     tmp = filtered.dropna(subset=["timestamp"]).copy()
-    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
 
     status_month = (
-        tmp.groupby(["month_period", "UK_Status"])
+        tmp.groupby(["month", "UK_Status"])
         .size()
         .reset_index(name="Count")
     )
     status_month["Percent"] = (
-        status_month.groupby("month_period")["Count"]
+        status_month.groupby("month")["Count"]
         .transform(lambda x: (x / x.sum()) * 100)
     )
 
     cmap = status_color_map(status_month["UK_Status"].unique())
     fig = px.area(
         status_month,
-        x="month_period", y="Percent",
+        x="month", y="Percent",
         color="UK_Status",
         title="Monthly Status Composition",
-        labels={"month_period": "Month", "Percent": "% of detections", "UK_Status": "UK Status"},
+        labels={"month": "Month", "Percent": "% of detections", "UK_Status": "UK Status"},
         color_discrete_map=cmap,
     )
+    fig.update_layout(xaxis=dict(
+        dtick=1,
+        tickmode="array",
+        tickvals=list(MONTH_LABELS.keys()),
+        ticktext=list(MONTH_LABELS.values()),
+    ))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
