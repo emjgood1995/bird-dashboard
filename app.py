@@ -1488,12 +1488,14 @@ elif page == "Weather & Activity":
             fig2 = make_subplots(specs=[[{"secondary_y": True}]])
             fig2.add_trace(
                 go.Bar(x=monthly_weather["month"], y=monthly_weather["total_det"],
-                       name="Detections", marker_color=PRIMARY, opacity=0.7),
+                       name="Detections", marker_color=PRIMARY, opacity=0.7,
+                       offsetgroup=0),
                 secondary_y=False,
             )
             fig2.add_trace(
                 go.Bar(x=monthly_weather["month"], y=monthly_weather["total_rain"],
-                       name="Total rainfall (mm)", marker_color=SECONDARY, opacity=0.5),
+                       name="Total rainfall (mm)", marker_color=SECONDARY, opacity=0.7,
+                       offsetgroup=1),
                 secondary_y=True,
             )
             fig2.update_layout(
