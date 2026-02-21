@@ -547,9 +547,12 @@ elif page == "Community Composition":
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
 
-    # Assign each species a colour once, ranked by overall frequency.
-    # Both comparison plots share this map so species colours are consistent.
-    _species_ranked = comp_df["Com_Name"].value_counts().index.tolist()
+    # Build colour map from the broadest dataset (pre-season/month filter)
+    # so compare modes can look up any species that exists in the data.
+    _comp_base_all = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
+    if exclude_review:
+        _comp_base_all = _comp_base_all[_comp_base_all["UK_Status"] != "Review Recording"].copy()
+    _species_ranked = _comp_base_all["Com_Name"].value_counts().index.tolist()
     species_color_map = {
         sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
         for i, sp in enumerate(_species_ranked)
@@ -596,7 +599,10 @@ elif page == "Community Composition":
             .transform(lambda x: (x / x.sum()) * 100)
         )
 
-        color_map = {sp: species_color_map[sp] for sp in top_species}
+        color_map = {
+            sp: species_color_map.get(sp, NATURE_PALETTE[i % len(NATURE_PALETTE)])
+            for i, sp in enumerate(top_species)
+        }
 
         fig = px.bar(
             comp_hour,
