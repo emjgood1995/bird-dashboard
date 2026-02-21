@@ -1073,69 +1073,6 @@ elif page == "Ecology & Phenology":
 
     st.divider()
 
-    # ── Species Richness Over Time ──
-    st.subheader("Species Richness Over Time")
-
-    rich_df = filtered.dropna(subset=["timestamp"]).copy()
-    rich_df["year"] = rich_df["timestamp"].dt.year.astype(int)
-    rich_years_avail = sorted(rich_df["year"].dropna().unique())
-
-    rich_cmp = st.checkbox("Compare years", value=False, key="rich_cmp_years")
-
-    if rich_cmp and len(rich_years_avail) >= 2:
-        default_rich_yrs = rich_years_avail[-2:] if len(rich_years_avail) >= 2 else rich_years_avail
-        rich_years = st.multiselect(
-            "Years to compare", rich_years_avail,
-            default=default_rich_yrs, key="rich_years",
-        )
-        if not rich_years:
-            st.info("Select at least one year.")
-        else:
-            r_df = rich_df[rich_df["year"].isin(rich_years)].copy()
-            richness_yr = (
-                r_df.groupby(["year", "month"])["Com_Name"]
-                .nunique()
-                .reset_index(name="Unique_Species")
-            )
-            richness_yr["Year"] = richness_yr["year"].astype(str)
-            fig = px.line(
-                richness_yr, x="month", y="Unique_Species", color="Year",
-                title="Unique Species per Month by Year",
-                labels={"month": "Month", "Unique_Species": "Unique species", "Year": "Year"},
-                color_discrete_sequence=NATURE_PALETTE,
-                markers=True,
-            )
-            fig.update_traces(line=dict(width=2), marker=dict(size=5))
-            fig.update_layout(xaxis=dict(
-                dtick=1,
-                tickmode="array",
-                tickvals=list(MONTH_LABELS.keys()),
-                ticktext=list(MONTH_LABELS.values()),
-            ))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
-    else:
-        rich_df["month_period"] = rich_df["timestamp"].dt.to_period("M").astype(str)
-        richness_month = (
-            rich_df.groupby("month_period")["Com_Name"]
-            .nunique()
-            .reset_index(name="Unique_Species")
-        )
-        fig = px.area(
-            richness_month,
-            x="month_period", y="Unique_Species",
-            title="Unique Species per Month",
-            labels={"month_period": "Month", "Unique_Species": "Unique species"},
-        )
-        fig.update_traces(
-            line=dict(color=PRIMARY, width=2),
-            fillcolor="rgba(61,107,68,0.14)",
-            marker=dict(size=5, color=PRIMARY),
-            mode="lines+markers",
-        )
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-    st.divider()
-
     # ── Species Co-occurrence ──
     st.subheader("Species Co-occurrence")
 
