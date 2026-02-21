@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 import requests
 import numpy as np
 import openpyxl
+from zoneinfo import ZoneInfo
 
 st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon="🐦")
 
@@ -361,18 +362,38 @@ def fetch_weather(lat: float, lon: float, start_date: str, end_date: str):
         hourly["date"] = hourly["datetime"].dt.date
         hourly["hour"] = hourly["datetime"].dt.hour
 
+        # Parse sunrise/sunset as Europe/London aware, then convert to UTC
+        _tz_london = ZoneInfo("Europe/London")
+        _tz_utc = ZoneInfo("UTC")
+        sunrise_local = pd.to_datetime(data["daily"]["sunrise"])
+        sunset_local = pd.to_datetime(data["daily"]["sunset"])
+        sunrise_utc = sunrise_local.map(lambda t: t.replace(tzinfo=_tz_london).astimezone(_tz_utc).replace(tzinfo=None))
+        sunset_utc = sunset_local.map(lambda t: t.replace(tzinfo=_tz_london).astimezone(_tz_utc).replace(tzinfo=None))
+
         daily = pd.DataFrame({
             "date": pd.to_datetime(data["daily"]["time"]).date,
             "temp_max": data["daily"]["temperature_2m_max"],
             "temp_min": data["daily"]["temperature_2m_min"],
             "precip_sum": data["daily"]["precipitation_sum"],
             "wind_max": data["daily"]["wind_speed_10m_max"],
-            "sunrise": pd.to_datetime(data["daily"]["sunrise"]),
-            "sunset": pd.to_datetime(data["daily"]["sunset"]),
+            "sunrise": sunrise_local,
+            "sunset": sunset_local,
+            "sunrise_utc": sunrise_utc,
+            "sunset_utc": sunset_utc,
         })
         return hourly, daily
     except Exception:
         return None, None
+
+
+_TZ_LONDON = ZoneInfo("Europe/London")
+_TZ_UTC = ZoneInfo("UTC")
+
+
+def to_utc_hour(ts: pd.Series) -> pd.Series:
+    """Convert naive local (Europe/London) timestamps to UTC decimal hours."""
+    utc_ts = ts.apply(lambda t: t.replace(tzinfo=_TZ_LONDON).astimezone(_TZ_UTC) if pd.notna(t) else t)
+    return utc_ts.dt.hour + utc_ts.dt.minute / 60.0
 
 
 st.title("🐦 Garden Bird Dashboard")
@@ -1003,8 +1024,15 @@ elif page == "Ecology & Phenology":
     else:
         top_dawn = dc_df["Com_Name"].value_counts().head(dc_topn).index.tolist()
         dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
-        dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
         dc_df["date"] = dc_df["timestamp"].dt.date
+
+        # Use UTC hours when sunrise is shown so both are in the same reference frame
+        if dc_show_sunrise:
+            dc_df["decimal_hour"] = to_utc_hour(dc_df["timestamp"])
+            hour_label = "Earliest hour (UTC)"
+        else:
+            dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
+            hour_label = "Earliest hour"
 
         earliest = (
             dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
@@ -1020,7 +1048,7 @@ elif page == "Ecology & Phenology":
             earliest, x="date", y="Earliest_Hour",
             color="Com_Name",
             title="Earliest Detection by Day (Dawn Window)",
-            labels={"date": "Date", "Earliest_Hour": "Earliest hour", "Com_Name": "Species"},
+            labels={"date": "Date", "Earliest_Hour": hour_label, "Com_Name": "Species"},
             color_discrete_map=color_map,
         )
         fig.update_traces(marker=dict(size=5, opacity=0.7))
@@ -1032,10 +1060,10 @@ elif page == "Ecology & Phenology":
             w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
             w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
             _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
-            if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
+            if sunrise_daily is not None and "sunrise_utc" in sunrise_daily.columns:
                 sunrise_daily = sunrise_daily.copy()
                 sunrise_daily["sunrise_hour"] = (
-                    sunrise_daily["sunrise"].dt.hour + sunrise_daily["sunrise"].dt.minute / 60.0
+                    sunrise_daily["sunrise_utc"].dt.hour + sunrise_daily["sunrise_utc"].dt.minute / 60.0
                 )
                 fig.add_scatter(
                     x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
@@ -1574,34 +1602,32 @@ elif page == "Weather & Activity":
             if len(dawn_df) == 0:
                 st.info("No dawn detections (03:00-10:00) in the current filters.")
             else:
-                # Earliest detection per day
+                # Earliest detection per day — convert to UTC for consistent comparison
                 dawn_earliest = (
                     dawn_df.groupby("date")["timestamp"]
                     .min()
                     .reset_index(name="earliest_detection")
                 )
-                dawn_earliest["earliest_hour"] = (
-                    dawn_earliest["earliest_detection"].dt.hour
-                    + dawn_earliest["earliest_detection"].dt.minute / 60.0
-                )
+                dawn_earliest["earliest_hour"] = to_utc_hour(dawn_earliest["earliest_detection"])
 
-                # Sunrise hour from daily weather
-                sunrise_df = weather_daily[["date", "sunrise"]].copy()
+                # Sunrise hour from daily weather (already in UTC)
+                sunrise_df = weather_daily[["date", "sunrise_utc"]].copy()
                 sunrise_df["sunrise_hour"] = (
-                    sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
+                    sunrise_df["sunrise_utc"].dt.hour + sunrise_df["sunrise_utc"].dt.minute / 60.0
                 )
 
-                # Temperature at sunrise hour
+                # Temperature at sunrise hour (use local sunrise hour to look up local hourly weather)
+                sunrise_local_df = weather_daily[["date", "sunrise"]].copy()
                 sunrise_temps = []
-                for _, row in sunrise_df.iterrows():
+                for _, row in sunrise_local_df.iterrows():
                     sr_hour = int(row["sunrise"].hour)
                     match = weather_hourly[
                         (weather_hourly["date"] == row["date"]) & (weather_hourly["hour"] == sr_hour)
                     ]
                     temp = match["temperature"].iloc[0] if len(match) > 0 else None
-                    sunrise_temps.append({"date": row["date"], "sunrise_hour": row["sunrise_hour"],
-                                          "sunrise_temp": temp})
+                    sunrise_temps.append({"date": row["date"], "sunrise_temp": temp})
                 sunrise_temp_df = pd.DataFrame(sunrise_temps)
+                sunrise_temp_df = sunrise_temp_df.merge(sunrise_df[["date", "sunrise_hour"]], on="date", how="left")
 
                 dawn_merged = dawn_earliest.merge(sunrise_temp_df, on="date", how="inner")
                 dawn_merged = dawn_merged.dropna(subset=["sunrise_temp"])
@@ -1615,7 +1641,7 @@ elif page == "Weather & Activity":
                             dawn_merged, x="sunrise_temp", y="earliest_hour",
                             title="First Detection vs Sunrise Temperature",
                             labels={"sunrise_temp": "Temperature at sunrise (°C)",
-                                    "earliest_hour": "Earliest detection (hour)"},
+                                    "earliest_hour": "Earliest detection (UTC hour)"},
                             hover_data={"date": True},
                         )
                         fig.update_traces(marker=dict(size=8, color=PRIMARY, opacity=0.7))
@@ -1632,8 +1658,8 @@ elif page == "Weather & Activity":
                         fig = px.scatter(
                             dawn_merged, x="sunrise_hour", y="earliest_hour",
                             title="First Detection vs Sunrise Time",
-                            labels={"sunrise_hour": "Sunrise (hour)",
-                                    "earliest_hour": "Earliest detection (hour)"},
+                            labels={"sunrise_hour": "Sunrise (UTC hour)",
+                                    "earliest_hour": "Earliest detection (UTC hour)"},
                             hover_data={"date": True},
                         )
                         fig.update_traces(marker=dict(size=8, color=SECONDARY, opacity=0.7))
