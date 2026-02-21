@@ -406,7 +406,6 @@ page = st.sidebar.radio(
     "View",
     [
         "Overview",
-        "Activity & Trends",
         "Community & Status",
         "Dawn Chorus Overview",
         "Weather & Activity",
@@ -635,8 +634,117 @@ if page == "Overview":
             fig.update_traces(line=dict(width=2))
             st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Activity & Trends ───────────────────────────────────────────────────────
-elif page == "Activity & Trends":
+    st.divider()
+
+    # ── Detection Trends (Yearly / Monthly / Weekly) ──
+    st.subheader("Detection Trends")
+
+    # Yearly
+    yearly = filtered.dropna(subset=["timestamp"]).copy()
+    yearly = yearly.groupby("year").size().reset_index(name="Count")
+    yearly["year"] = yearly["year"].astype(int)
+    fig = px.area(
+        yearly, x="year", y="Count",
+        title="Yearly Detection Trends",
+        labels={"year": "Year", "Count": "Detections"},
+    )
+    fig.update_traces(
+        line=dict(color=PRIMARY, width=2),
+        fillcolor="rgba(61,107,68,0.14)",
+        marker=dict(size=6, color=PRIMARY),
+        mode="lines+markers",
+    )
+    fig.update_layout(xaxis=dict(dtick=1))
+    st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    # Monthly & Weekly — with optional year comparison
+    trends_df = filtered.dropna(subset=["timestamp"]).copy()
+    trends_df["year"] = trends_df["timestamp"].dt.year.astype(int)
+    trends_years_avail = sorted(trends_df["year"].dropna().unique())
+
+    trends_cmp = st.checkbox("Compare years", value=False, key="trends_cmp_years")
+
+    if trends_cmp and len(trends_years_avail) >= 2:
+        default_trends_yrs = trends_years_avail[-2:] if len(trends_years_avail) >= 2 else trends_years_avail
+        trends_years = st.multiselect(
+            "Years to compare", trends_years_avail,
+            default=default_trends_yrs, key="trends_years",
+        )
+        if not trends_years:
+            st.info("Select at least one year.")
+        else:
+            t_df = trends_df[trends_df["year"].isin(trends_years)].copy()
+
+            # Monthly by year
+            monthly_yr = t_df.groupby(["year", "month"]).size().reset_index(name="Count")
+            monthly_yr["Year"] = monthly_yr["year"].astype(str)
+            fig = px.line(
+                monthly_yr, x="month", y="Count", color="Year",
+                title="Monthly Detection Trends by Year",
+                labels={"month": "Month", "Count": "Detections", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=5))
+            fig.update_layout(xaxis=dict(
+                dtick=1,
+                tickmode="array",
+                tickvals=list(MONTH_LABELS.keys()),
+                ticktext=list(MONTH_LABELS.values()),
+            ))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            # Weekly by year
+            weekly_yr = t_df.groupby(["year", "week"]).size().reset_index(name="Count")
+            weekly_yr["Year"] = weekly_yr["year"].astype(str)
+            fig = px.line(
+                weekly_yr, x="week", y="Count", color="Year",
+                title="Weekly Detection Trends by Year",
+                labels={"week": "Week of year", "Count": "Detections", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+                markers=True,
+            )
+            fig.update_traces(line=dict(width=2), marker=dict(size=4))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+    else:
+        # Monthly — aggregated
+        monthly = filtered.groupby("month").size().reset_index(name="Count")
+        fig = px.area(
+            monthly, x="month", y="Count",
+            title="Monthly Detection Trends",
+            labels={"month": "Month", "Count": "Detections"},
+        )
+        fig.update_traces(
+            line=dict(color=TERTIARY, width=2),
+            fillcolor="rgba(184,144,64,0.14)",
+            marker=dict(size=6, color=TERTIARY),
+            mode="lines+markers",
+        )
+        fig.update_layout(xaxis=dict(
+            dtick=1,
+            tickmode="array",
+            tickvals=list(MONTH_LABELS.keys()),
+            ticktext=list(MONTH_LABELS.values()),
+        ))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        # Weekly — aggregated
+        weekly = filtered.groupby("week").size().reset_index(name="Count")
+        fig = px.area(
+            weekly, x="week", y="Count",
+            title="Weekly Detection Trends",
+            labels={"week": "Week of year", "Count": "Detections"},
+        )
+        fig.update_traces(
+            line=dict(color=SECONDARY, width=2),
+            fillcolor="rgba(74,112,144,0.14)",
+            marker=dict(size=5, color=SECONDARY),
+            mode="lines+markers",
+        )
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+# ── Community & Status ──────────────────────────────────────────────────────
+elif page == "Community & Status":
 
     def tod_chart(data: pd.DataFrame, title: str, by_species: bool, by_status: bool):
         """Render one Activity by Hour chart."""
@@ -819,115 +927,6 @@ elif page == "Activity & Trends":
 
     st.divider()
 
-    # ── Trends (Yearly / Monthly / Weekly) ──
-    st.subheader("Detection Trends")
-
-    # Yearly
-    yearly = filtered.dropna(subset=["timestamp"]).copy()
-    yearly = yearly.groupby("year").size().reset_index(name="Count")
-    yearly["year"] = yearly["year"].astype(int)
-    fig = px.area(
-        yearly, x="year", y="Count",
-        title="Yearly Detection Trends",
-        labels={"year": "Year", "Count": "Detections"},
-    )
-    fig.update_traces(
-        line=dict(color=PRIMARY, width=2),
-        fillcolor="rgba(61,107,68,0.14)",
-        marker=dict(size=6, color=PRIMARY),
-        mode="lines+markers",
-    )
-    fig.update_layout(xaxis=dict(dtick=1))
-    st.plotly_chart(style_fig(fig), use_container_width=True)
-
-    # Monthly & Weekly — with optional year comparison
-    trends_df = filtered.dropna(subset=["timestamp"]).copy()
-    trends_df["year"] = trends_df["timestamp"].dt.year.astype(int)
-    trends_years_avail = sorted(trends_df["year"].dropna().unique())
-
-    trends_cmp = st.checkbox("Compare years", value=False, key="trends_cmp_years")
-
-    if trends_cmp and len(trends_years_avail) >= 2:
-        default_trends_yrs = trends_years_avail[-2:] if len(trends_years_avail) >= 2 else trends_years_avail
-        trends_years = st.multiselect(
-            "Years to compare", trends_years_avail,
-            default=default_trends_yrs, key="trends_years",
-        )
-        if not trends_years:
-            st.info("Select at least one year.")
-        else:
-            t_df = trends_df[trends_df["year"].isin(trends_years)].copy()
-
-            # Monthly by year
-            monthly_yr = t_df.groupby(["year", "month"]).size().reset_index(name="Count")
-            monthly_yr["Year"] = monthly_yr["year"].astype(str)
-            fig = px.line(
-                monthly_yr, x="month", y="Count", color="Year",
-                title="Monthly Detection Trends by Year",
-                labels={"month": "Month", "Count": "Detections", "Year": "Year"},
-                color_discrete_sequence=NATURE_PALETTE,
-                markers=True,
-            )
-            fig.update_traces(line=dict(width=2), marker=dict(size=5))
-            fig.update_layout(xaxis=dict(
-                dtick=1,
-                tickmode="array",
-                tickvals=list(MONTH_LABELS.keys()),
-                ticktext=list(MONTH_LABELS.values()),
-            ))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
-
-            # Weekly by year
-            weekly_yr = t_df.groupby(["year", "week"]).size().reset_index(name="Count")
-            weekly_yr["Year"] = weekly_yr["year"].astype(str)
-            fig = px.line(
-                weekly_yr, x="week", y="Count", color="Year",
-                title="Weekly Detection Trends by Year",
-                labels={"week": "Week of year", "Count": "Detections", "Year": "Year"},
-                color_discrete_sequence=NATURE_PALETTE,
-                markers=True,
-            )
-            fig.update_traces(line=dict(width=2), marker=dict(size=4))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
-    else:
-        # Monthly — aggregated
-        monthly = filtered.groupby("month").size().reset_index(name="Count")
-        fig = px.area(
-            monthly, x="month", y="Count",
-            title="Monthly Detection Trends",
-            labels={"month": "Month", "Count": "Detections"},
-        )
-        fig.update_traces(
-            line=dict(color=TERTIARY, width=2),
-            fillcolor="rgba(184,144,64,0.14)",
-            marker=dict(size=6, color=TERTIARY),
-            mode="lines+markers",
-        )
-        fig.update_layout(xaxis=dict(
-            dtick=1,
-            tickmode="array",
-            tickvals=list(MONTH_LABELS.keys()),
-            ticktext=list(MONTH_LABELS.values()),
-        ))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-        # Weekly — aggregated
-        weekly = filtered.groupby("week").size().reset_index(name="Count")
-        fig = px.area(
-            weekly, x="week", y="Count",
-            title="Weekly Detection Trends",
-            labels={"week": "Week of year", "Count": "Detections"},
-        )
-        fig.update_traces(
-            line=dict(color=SECONDARY, width=2),
-            fillcolor="rgba(74,112,144,0.14)",
-            marker=dict(size=5, color=SECONDARY),
-            mode="lines+markers",
-        )
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-# ── Community & Status ──────────────────────────────────────────────────────
-elif page == "Community & Status":
     st.subheader("Community Composition by Hour (Top 20 species, %)")
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
