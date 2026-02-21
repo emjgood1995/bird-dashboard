@@ -1387,7 +1387,7 @@ elif page == "NMDS":
     with nmds_c1:
         nmds_matrix = st.selectbox(
             "Feature matrix",
-            ["Species × Time Bucket", "Species × Month", "Species × Week"],
+            ["Species × Diet", "Species × UK Status", "Species × Time Bucket", "Species × Season"],
             key="nmds_matrix",
         )
     with nmds_c2:
@@ -1415,15 +1415,21 @@ elif page == "NMDS":
         nmds_ts = nmds_df.dropna(subset=["timestamp"]).copy()
 
         # Build pivot table based on chosen matrix
-        if nmds_matrix == "Species × Time Bucket":
+        _season_map = {1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring", 5: "Spring",
+                       6: "Summer", 7: "Summer", 8: "Summer", 9: "Autumn", 10: "Autumn",
+                       11: "Autumn", 12: "Winter"}
+        if nmds_matrix == "Species × Diet":
+            nmds_ts["_unit"] = nmds_ts["Diet"]
+            all_cols = sorted(nmds_ts["Diet"].dropna().unique())
+        elif nmds_matrix == "Species × UK Status":
+            nmds_ts["_unit"] = nmds_ts["UK_Status"]
+            all_cols = sorted(nmds_ts["UK_Status"].dropna().unique())
+        elif nmds_matrix == "Species × Time Bucket":
             nmds_ts["_unit"] = nmds_ts["hour"].apply(assign_time_bucket)
             all_cols = list(TIME_BUCKET_COLORS.keys())
-        elif nmds_matrix == "Species × Month":
-            nmds_ts["_unit"] = nmds_ts["month"].map(MONTH_LABELS)
-            all_cols = list(MONTH_LABELS.values())
-        else:  # Species × Week
-            nmds_ts["_unit"] = nmds_ts["week"]
-            all_cols = list(range(1, 54))
+        else:  # Species × Season
+            nmds_ts["_unit"] = nmds_ts["month"].map(_season_map)
+            all_cols = list(SEASON_COLORS.keys())
 
         nmds_pivot = nmds_ts.pivot_table(
             index="Com_Name", columns="_unit", values="timestamp",
@@ -1463,10 +1469,7 @@ elif page == "NMDS":
         dom_tb.columns = ["Species", "Dominant_Time_Bucket"]
 
         # Peak season
-        season_map = {1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring", 5: "Spring",
-                      6: "Summer", 7: "Summer", 8: "Summer", 9: "Autumn", 10: "Autumn",
-                      11: "Autumn", 12: "Winter"}
-        nmds_ts["_season"] = nmds_ts["month"].map(season_map)
+        nmds_ts["_season"] = nmds_ts["month"].map(_season_map)
         season_counts = nmds_ts.groupby(["Com_Name", "_season"]).size().reset_index(name="n")
         peak_season = season_counts.loc[season_counts.groupby("Com_Name")["n"].idxmax()][["Com_Name", "_season"]]
         peak_season.columns = ["Species", "Peak_Season"]
@@ -1504,7 +1507,7 @@ elif page == "NMDS":
                 "NMDS1": ":.3f",
                 "NMDS2": ":.3f",
             },
-            title="NMDS — Species by Temporal Activity Similarity",
+            title="NMDS — Species Similarity Ordination",
         )
         fig_nmds.update_traces(marker=dict(size=10, line=dict(width=1, color="rgba(26,36,22,0.3)")))
         st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
