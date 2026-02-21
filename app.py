@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import requests
+import numpy as np
 import openpyxl
 
 st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon="🐦")
@@ -325,6 +326,9 @@ page = st.sidebar.radio(
         "Status Over Time",
         "Status by Hour",
         "Review / Richness",
+        "Phenology",
+        "Ecology",
+        "Data Quality & Records",
     ],
     label_visibility="collapsed",
 )
@@ -1012,3 +1016,434 @@ elif page == "Review / Richness":
                     st.error(
                         f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}"
                     )
+
+# ── Phenology ──────────────────────────────────────────────────────────────
+elif page == "Phenology":
+
+    # ── Dawn Chorus Tracker ──
+    st.subheader("Dawn Chorus Tracker")
+    dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
+
+    dc_df = filtered.dropna(subset=["timestamp"]).copy()
+    dc_df = dc_df[(dc_df["hour"] >= 3) & (dc_df["hour"] <= 10)]
+
+    if len(dc_df) == 0:
+        st.info("No detections in the dawn window (03:00-10:00) for current filters.")
+    else:
+        top_dawn = dc_df["Com_Name"].value_counts().head(dc_topn).index.tolist()
+        dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
+        dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
+
+        earliest = (
+            dc_df.groupby(["month", "Com_Name"])["decimal_hour"]
+            .min()
+            .reset_index(name="Earliest_Hour")
+        )
+        earliest["Month_Label"] = earliest["month"].map(MONTH_LABELS)
+
+        color_map = {
+            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+            for i, sp in enumerate(top_dawn)
+        }
+        fig = px.line(
+            earliest, x="month", y="Earliest_Hour",
+            color="Com_Name",
+            title="Earliest Detection by Month (Dawn Window)",
+            labels={"month": "Month", "Earliest_Hour": "Earliest hour", "Com_Name": "Species"},
+            color_discrete_map=color_map,
+            markers=True,
+        )
+        fig.update_layout(xaxis=dict(
+            dtick=1,
+            tickmode="array",
+            tickvals=list(MONTH_LABELS.keys()),
+            ticktext=list(MONTH_LABELS.values()),
+        ))
+        fig.update_traces(line=dict(width=2), marker=dict(size=5))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── New Arrival Alerts ──
+    st.subheader("New Arrival Alerts")
+
+    na_df = filtered.dropna(subset=["timestamp"]).copy()
+    na_df["year"] = na_df["timestamp"].dt.year
+
+    available_years = sorted(na_df["year"].dropna().unique())
+    if len(available_years) == 0:
+        st.info("No data available for new arrival analysis.")
+    else:
+        na_years = st.multiselect(
+            "Years to inspect", available_years,
+            default=[available_years[-1]], key="na_years",
+        )
+        if not na_years:
+            st.info("Select at least one year.")
+        else:
+            first_det = (
+                na_df.groupby(["Com_Name", "year"])["timestamp"]
+                .min()
+                .reset_index(name="First_Seen")
+            )
+            first_det["First_Seen_Date"] = first_det["First_Seen"].dt.date
+
+            # Compute the earliest year each species was ever seen
+            ever_first = first_det.groupby("Com_Name")["year"].min().reset_index(name="First_Year_Ever")
+            first_det = first_det.merge(ever_first, on="Com_Name", how="left")
+            first_det["New_Species"] = first_det["year"] == first_det["First_Year_Ever"]
+
+            display_df = first_det[first_det["year"].isin(na_years)].copy()
+            display_df = display_df.sort_values("First_Seen_Date")
+
+            cols = st.columns(len(na_years))
+            for i, yr in enumerate(sorted(na_years)):
+                yr_new = display_df[(display_df["year"] == yr) & (display_df["New_Species"])]
+                cols[i].metric(f"New arrivals {yr}", len(yr_new))
+
+            st.dataframe(
+                display_df[["Com_Name", "year", "First_Seen_Date", "New_Species"]]
+                .rename(columns={"Com_Name": "Species", "year": "Year",
+                                 "First_Seen_Date": "First Seen", "New_Species": "New Species"}),
+                hide_index=True,
+            )
+
+    st.divider()
+
+    # ── Year List Progress ──
+    st.subheader("Year List Progress")
+
+    yl_df = filtered.dropna(subset=["timestamp"]).copy()
+    yl_df["year"] = yl_df["timestamp"].dt.year
+    yl_years_avail = sorted(yl_df["year"].dropna().unique())
+
+    if len(yl_years_avail) < 1:
+        st.info("No data available for year list progress.")
+    else:
+        default_yl = yl_years_avail[-2:] if len(yl_years_avail) >= 2 else yl_years_avail
+        yl_years = st.multiselect(
+            "Years to compare", yl_years_avail,
+            default=default_yl, key="yl_years",
+        )
+        if not yl_years:
+            st.info("Select at least one year.")
+        else:
+            yl_df = yl_df[yl_df["year"].isin(yl_years)].copy()
+            yl_df["doy"] = yl_df["timestamp"].dt.dayofyear
+
+            first_doy = yl_df.groupby(["year", "Com_Name"])["doy"].min().reset_index(name="First_DOY")
+
+            cumul_rows = []
+            for yr in sorted(yl_years):
+                yr_data = first_doy[first_doy["year"] == yr].sort_values("First_DOY")
+                for doy_val in range(1, 367):
+                    count = (yr_data["First_DOY"] <= doy_val).sum()
+                    cumul_rows.append({"Year": str(int(yr)), "Day_of_Year": doy_val, "Cumulative_Species": count})
+            cumul_df = pd.DataFrame(cumul_rows)
+
+            fig = px.line(
+                cumul_df, x="Day_of_Year", y="Cumulative_Species",
+                color="Year",
+                title="Cumulative Species by Day of Year",
+                labels={"Day_of_Year": "Day of year", "Cumulative_Species": "Cumulative species", "Year": "Year"},
+                color_discrete_sequence=NATURE_PALETTE,
+            )
+            fig.update_traces(line=dict(width=2))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+# ── Ecology ────────────────────────────────────────────────────────────────
+elif page == "Ecology":
+
+    # ── Species Co-occurrence ──
+    st.subheader("Species Co-occurrence")
+
+    co_topn = st.slider("Top N species", 5, 20, 15, key="co_topn")
+    co_unit = st.radio("Co-occurrence unit", ["Day", "Hour"], horizontal=True, key="co_unit")
+
+    co_df = filtered.dropna(subset=["timestamp"]).copy()
+
+    if len(co_df) == 0:
+        st.info("No data available for co-occurrence analysis.")
+    else:
+        top_co = co_df["Com_Name"].value_counts().head(co_topn).index.tolist()
+        co_df = co_df[co_df["Com_Name"].isin(top_co)].copy()
+
+        if co_unit == "Day":
+            co_df["unit"] = co_df["timestamp"].dt.date.astype(str)
+        else:
+            co_df["unit"] = co_df["timestamp"].dt.strftime("%Y-%m-%d-%H")
+
+        presence = co_df.groupby(["unit", "Com_Name"]).size().unstack(fill_value=0)
+        presence = (presence > 0).astype(int)
+        # Ensure all top species are columns
+        for sp in top_co:
+            if sp not in presence.columns:
+                presence[sp] = 0
+        presence = presence[top_co]
+
+        dot = presence.T.values @ presence.values  # species x species
+        counts = presence.sum(axis=0).values
+        min_counts = np.minimum(counts[:, None], counts[None, :])
+        min_counts[min_counts == 0] = 1  # avoid division by zero
+        norm_co = dot / min_counts
+        np.fill_diagonal(norm_co, 0)
+
+        fig = px.imshow(
+            norm_co,
+            x=top_co, y=top_co,
+            title=f"Species Co-occurrence (normalised, by {co_unit.lower()})",
+            color_continuous_scale=HEATMAP_SCALE,
+            labels={"color": "Co-occurrence"},
+            aspect="auto",
+        )
+        fig.update_layout(
+            coloraxis_colorbar=dict(
+                title="Co-occurrence",
+                tickfont=dict(size=11, color="#4a5c44"),
+                title_font=dict(size=12, color="#4a5c44"),
+                thickness=14,
+            ),
+        )
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── Diversity Indices ──
+    st.subheader("Diversity Indices")
+
+    div_res = st.radio("Time resolution", ["Month", "Week"], horizontal=True, key="div_res")
+
+    div_df = filtered.dropna(subset=["timestamp"]).copy()
+
+    if len(div_df) == 0:
+        st.info("No data available for diversity index computation.")
+    else:
+        if div_res == "Month":
+            div_df["period"] = div_df["timestamp"].dt.to_period("M").astype(str)
+        else:
+            div_df["period"] = (
+                div_df["timestamp"].dt.isocalendar().year.astype(str) + "-W"
+                + div_df["timestamp"].dt.isocalendar().week.astype(str).str.zfill(2)
+            )
+
+        periods = sorted(div_df["period"].unique())
+        div_rows = []
+        for p in periods:
+            p_df = div_df[div_df["period"] == p]
+            counts = p_df["Com_Name"].value_counts().values
+            total = counts.sum()
+            richness = len(counts)
+            if total > 0 and richness > 0:
+                proportions = counts / total
+                shannon = -np.sum(proportions * np.log(proportions))
+                simpson = 1 - np.sum(proportions ** 2)
+            else:
+                shannon = 0.0
+                simpson = 0.0
+            div_rows.append({"Period": p, "Shannon_H": shannon, "Simpson_1D": simpson, "Richness": richness})
+        div_result = pd.DataFrame(div_rows)
+
+        fig_h = px.line(
+            div_result, x="Period", y="Shannon_H",
+            title="Shannon Diversity (H')",
+            labels={"Period": div_res, "Shannon_H": "H'"},
+            markers=True,
+        )
+        fig_h.update_traces(line=dict(color=PRIMARY, width=2), marker=dict(size=5, color=PRIMARY))
+        st.plotly_chart(style_fig(fig_h), use_container_width=True)
+
+        fig_s = px.line(
+            div_result, x="Period", y="Simpson_1D",
+            title="Simpson's Diversity (1-D)",
+            labels={"Period": div_res, "Simpson_1D": "1-D"},
+            markers=True,
+        )
+        fig_s.update_traces(line=dict(color=SECONDARY, width=2), marker=dict(size=5, color=SECONDARY))
+        st.plotly_chart(style_fig(fig_s), use_container_width=True)
+
+        fig_r = px.bar(
+            div_result, x="Period", y="Richness",
+            title="Species Richness",
+            labels={"Period": div_res, "Richness": "Species count"},
+        )
+        fig_r.update_traces(marker_color=TERTIARY, marker_line_width=0)
+        st.plotly_chart(style_fig(fig_r), use_container_width=True)
+
+# ── Data Quality & Records ─────────────────────────────────────────────────
+elif page == "Data Quality & Records":
+
+    # ── Confidence Distribution ──
+    st.subheader("Confidence Distribution")
+
+    cd_topn = st.slider("Top N species", 5, 30, 20, key="cd_topn")
+    cd_box = st.checkbox("Overlay box plot", value=True, key="cd_box")
+
+    cd_df = filtered.dropna(subset=["Confidence"]).copy()
+
+    if len(cd_df) == 0:
+        st.info("No confidence data available.")
+    else:
+        # Sort species by median confidence
+        medians = cd_df.groupby("Com_Name")["Confidence"].median().sort_values()
+        top_cd = medians.tail(cd_topn).index.tolist()
+        cd_df = cd_df[cd_df["Com_Name"].isin(top_cd)].copy()
+        # Reorder by median
+        species_order = medians.loc[medians.index.isin(top_cd)].index.tolist()
+
+        color_map = {
+            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+            for i, sp in enumerate(species_order)
+        }
+
+        fig = px.violin(
+            cd_df, x="Confidence", y="Com_Name",
+            orientation="h",
+            title="Confidence Distribution by Species",
+            labels={"Confidence": "Confidence", "Com_Name": "Species"},
+            color="Com_Name",
+            color_discrete_map=color_map,
+            category_orders={"Com_Name": species_order},
+        )
+        if cd_box:
+            fig.update_traces(box_visible=True)
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── False Positive Candidates ──
+    st.subheader("False Positive Candidates")
+
+    fp_thresh = st.slider("Confidence threshold", 0.0, 1.0, 0.7, key="fp_thresh")
+    all_statuses = sorted(filtered["UK_Status"].dropna().unique())
+    fp_default = [s for s in ["Rare vagrant", "Scarce visitor"] if s in all_statuses]
+    fp_statuses = st.multiselect(
+        "UK statuses to flag", all_statuses,
+        default=fp_default, key="fp_statuses",
+    )
+
+    fp_df = filtered[filtered["Confidence"] <= fp_thresh].copy()
+    if fp_statuses:
+        fp_df = fp_df[fp_df["UK_Status"].isin(fp_statuses)].copy()
+
+    if len(fp_df) == 0:
+        st.info("No false positive candidates for current filters.")
+    else:
+        fp_left, fp_right = st.columns(2, gap="large")
+
+        with fp_left:
+            cmap = status_color_map(fp_df["UK_Status"].unique())
+            fig = px.scatter(
+                fp_df, x="Confidence", y="Com_Name",
+                color="UK_Status",
+                title="Low-Confidence Detections",
+                labels={"Confidence": "Confidence", "Com_Name": "Species", "UK_Status": "UK Status"},
+                color_discrete_map=cmap,
+            )
+            fig.update_traces(marker=dict(size=6, opacity=0.7))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        with fp_right:
+            summary = (
+                fp_df.groupby(["Com_Name", "UK_Status"])
+                .agg(Count=("Confidence", "size"), Avg_Confidence=("Confidence", "mean"))
+                .reset_index()
+                .sort_values("Avg_Confidence")
+                .rename(columns={"Com_Name": "Species", "UK_Status": "Status",
+                                 "Avg_Confidence": "Avg Confidence"})
+            )
+            summary["Avg Confidence"] = summary["Avg Confidence"].round(3)
+            st.dataframe(summary, hide_index=True)
+
+    st.divider()
+
+    # ── Personal Records ──
+    st.subheader("Personal Records")
+
+    pr_df = filtered.dropna(subset=["timestamp"]).copy()
+    pr_df["year"] = pr_df["timestamp"].dt.year
+
+    pr_years_avail = sorted(pr_df["year"].dropna().unique())
+    pr_years = st.multiselect(
+        "Filter to years", pr_years_avail,
+        default=pr_years_avail, key="pr_years",
+    )
+    pr_rarest_n = st.slider("N rarest species", 5, 30, 15, key="pr_rarest_n")
+
+    if pr_years:
+        pr_df = pr_df[pr_df["year"].isin(pr_years)].copy()
+
+    if len(pr_df) == 0:
+        st.info("No data available for personal records.")
+    else:
+        # Earliest / latest detection
+        det_range = pr_df.groupby("Com_Name")["timestamp"].agg(["min", "max"]).reset_index()
+        det_range.columns = ["Species", "Earliest_Detection", "Latest_Detection"]
+        det_range["Earliest"] = det_range["Earliest_Detection"].dt.strftime("%m-%d")
+        det_range["Latest"] = det_range["Latest_Detection"].dt.strftime("%m-%d")
+
+        pr_k1, pr_k2 = st.columns(2)
+        pr_k1.metric("Total species recorded", det_range["Species"].nunique())
+        pr_k2.metric("Date range", f"{pr_df['timestamp'].min().strftime('%Y-%m-%d')} to {pr_df['timestamp'].max().strftime('%Y-%m-%d')}")
+
+        st.dataframe(
+            det_range[["Species", "Earliest", "Latest"]].sort_values("Earliest"),
+            hide_index=True,
+        )
+
+        st.divider()
+
+        # Rarest visitors
+        st.subheader("Rarest Visitors")
+        rarest = (
+            pr_df["Com_Name"].value_counts()
+            .tail(pr_rarest_n)
+            .reset_index()
+        )
+        rarest.columns = ["Species", "Count"]
+        rarest = rarest.sort_values("Count", ascending=True)
+
+        fig = px.bar(
+            rarest, x="Count", y="Species", orientation="h",
+            title=f"Top {pr_rarest_n} Rarest Species (fewest detections)",
+            labels={"Count": "Detections", "Species": ""},
+            color="Count",
+            color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
+        )
+        fig.update_coloraxes(showscale=False)
+        fig.update_traces(marker_line_width=0)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        st.divider()
+
+        # Longest streak
+        st.subheader("Longest Detection Streak")
+
+        def longest_streak(dates):
+            """Compute longest run of consecutive days."""
+            if len(dates) == 0:
+                return 0
+            unique_days = sorted(set(dates))
+            best = 1
+            current = 1
+            for i in range(1, len(unique_days)):
+                if (unique_days[i] - unique_days[i - 1]).days == 1:
+                    current += 1
+                    best = max(best, current)
+                else:
+                    current = 1
+            return best
+
+        pr_df["det_date"] = pr_df["timestamp"].dt.date
+        streak_data = (
+            pr_df.groupby("Com_Name")["det_date"]
+            .apply(lambda x: longest_streak(x.tolist()))
+            .reset_index(name="Longest_Streak")
+            .sort_values("Longest_Streak", ascending=False)
+        )
+
+        st.metric("Top streak", f"{streak_data['Longest_Streak'].max()} days" if len(streak_data) else "—")
+        st.dataframe(
+            streak_data.rename(columns={"Com_Name": "Species", "Longest_Streak": "Longest Streak (days)"}),
+            hide_index=True,
+        )
