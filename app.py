@@ -482,7 +482,7 @@ if page == "Overview":
 # ── Activity & Trends ───────────────────────────────────────────────────────
 elif page == "Activity & Trends":
 
-    def tod_chart(data: pd.DataFrame, title: str, by_species: bool):
+    def tod_chart(data: pd.DataFrame, title: str, by_species: bool, by_status: bool):
         """Render one Activity by Hour chart."""
         if len(data) == 0:
             st.warning("No data for this selection.")
@@ -513,6 +513,24 @@ elif page == "Activity & Trends":
                 marker=dict(size=5, color="#1a2416"),
                 name="Total", showlegend=True,
             )
+        elif by_status:
+            status_hour = (
+                data.groupby(["hour", "UK_Status"])
+                .size()
+                .reset_index(name="Count")
+            )
+            cmap = status_color_map(status_hour["UK_Status"].unique())
+            fig = px.line(
+                status_hour,
+                x="hour", y="Count",
+                color="UK_Status",
+                markers=True,
+                title=title,
+                labels={"hour": "Hour of day", "Count": "Detections", "UK_Status": "UK Status"},
+                color_discrete_map=cmap,
+            )
+            fig.update_layout(xaxis=dict(dtick=1))
+            fig.update_traces(line=dict(width=2), marker=dict(size=5))
         else:
             hourly = data.groupby("hour").size().reset_index(name="Count")
             fig = px.area(
@@ -538,12 +556,22 @@ elif page == "Activity & Trends":
         if st.session_state.get("tod_cmp_seasons"):
             st.session_state["tod_cmp_months"] = False
 
-    tc1, tc2, tc3 = st.columns(3, gap="large")
+    def _tod_on_species():
+        if st.session_state.get("tod_by_species"):
+            st.session_state["tod_by_status"] = False
+
+    def _tod_on_status():
+        if st.session_state.get("tod_by_status"):
+            st.session_state["tod_by_species"] = False
+
+    tc1, tc2, tc3, tc4 = st.columns(4, gap="large")
     with tc1:
-        show_by_species = st.checkbox("Show by species", value=False, key="tod_by_species")
+        show_by_species = st.checkbox("Show by species", value=False, key="tod_by_species", on_change=_tod_on_species)
     with tc2:
-        tod_cmp_months = st.checkbox("Compare two months", value=False, key="tod_cmp_months", on_change=_tod_on_months)
+        show_by_status = st.checkbox("Show by status", value=False, key="tod_by_status", on_change=_tod_on_status)
     with tc3:
+        tod_cmp_months = st.checkbox("Compare two months", value=False, key="tod_cmp_months", on_change=_tod_on_months)
+    with tc4:
         tod_cmp_seasons = st.checkbox("Compare two seasons", value=False, key="tod_cmp_seasons", on_change=_tod_on_seasons)
 
     # Pre-filter base for compare overrides
@@ -569,10 +597,10 @@ elif page == "Activity & Trends":
         l, r = st.columns(2, gap="large")
         with l:
             tod_chart(_cmp[_cmp["month_num"] == month_num_by_name[tod_ma]],
-                      f"{tod_ma} · {years_label} · {season_label}", show_by_species)
+                      f"{tod_ma} · {years_label} · {season_label}", show_by_species, show_by_status)
         with r:
             tod_chart(_cmp[_cmp["month_num"] == month_num_by_name[tod_mb]],
-                      f"{tod_mb} · {years_label} · {season_label}", show_by_species)
+                      f"{tod_mb} · {years_label} · {season_label}", show_by_species, show_by_status)
 
     elif tod_cmp_seasons:
         seasons_opts = ["Spring", "Summer", "Autumn", "Winter"]
@@ -589,14 +617,14 @@ elif page == "Activity & Trends":
         l, r = st.columns(2, gap="large")
         with l:
             tod_chart(_cmp[_cmp["season"] == tod_sa],
-                      f"{tod_sa} · {years_label} · {month_label}", show_by_species)
+                      f"{tod_sa} · {years_label} · {month_label}", show_by_species, show_by_status)
         with r:
             tod_chart(_cmp[_cmp["season"] == tod_sb],
-                      f"{tod_sb} · {years_label} · {month_label}", show_by_species)
+                      f"{tod_sb} · {years_label} · {month_label}", show_by_species, show_by_status)
 
     else:
         tod_chart(filtered, f"Activity by Hour · {month_label} · {years_label} · {season_label}",
-                  show_by_species)
+                  show_by_species, show_by_status)
 
     st.divider()
 
@@ -912,30 +940,6 @@ elif page == "Community & Status":
     ))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-    st.divider()
-
-    # ── Status by Hour ──
-    st.subheader("Status by Hour")
-
-    status_hour = (
-        filtered.groupby(["hour", "UK_Status"])
-        .size()
-        .reset_index(name="Count")
-    )
-
-    cmap = status_color_map(status_hour["UK_Status"].unique())
-    fig = px.line(
-        status_hour,
-        x="hour", y="Count",
-        color="UK_Status",
-        markers=True,
-        title="Activity by Hour · by Status",
-        labels={"hour": "Hour of day", "Count": "Detections", "UK_Status": "UK Status"},
-        color_discrete_map=cmap,
-    )
-    fig.update_layout(xaxis=dict(dtick=1))
-    fig.update_traces(line=dict(width=2), marker=dict(size=5))
-    st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Ecology & Phenology ────────────────────────────────────────────────────
 elif page == "Ecology & Phenology":
