@@ -390,10 +390,10 @@ _TZ_LONDON = ZoneInfo("Europe/London")
 _TZ_UTC = ZoneInfo("UTC")
 
 
-def to_utc_hour(ts: pd.Series) -> pd.Series:
-    """Convert naive local (Europe/London) timestamps to UTC decimal hours."""
-    utc_ts = ts.apply(lambda t: t.replace(tzinfo=_TZ_LONDON).astimezone(_TZ_UTC) if pd.notna(t) else t)
-    return utc_ts.dt.hour + utc_ts.dt.minute / 60.0
+def to_local_hour(ts: pd.Series) -> pd.Series:
+    """Convert naive UTC timestamps to Europe/London local decimal hours (DST-aware)."""
+    local_ts = ts.apply(lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON) if pd.notna(t) else t)
+    return local_ts.dt.hour + local_ts.dt.minute / 60.0
 
 
 st.title("🐦 Garden Bird Dashboard")
@@ -1026,10 +1026,14 @@ elif page == "Ecology & Phenology":
         dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
         dc_df["date"] = dc_df["timestamp"].dt.date
 
-        # Both detections and Open-Meteo sunrise are in local wall-clock time
-        # (Europe/London, including DST), so no conversion needed.
-        dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
-        hour_label = "Earliest hour"
+        # Detection timestamps are in UTC; convert to local time when comparing
+        # with sunrise (which Open-Meteo returns in local time).
+        if dc_show_sunrise:
+            dc_df["decimal_hour"] = to_local_hour(dc_df["timestamp"])
+            hour_label = "Earliest hour (local)"
+        else:
+            dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
+            hour_label = "Earliest hour"
 
         earliest = (
             dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
@@ -1599,16 +1603,13 @@ elif page == "Weather & Activity":
             if len(dawn_df) == 0:
                 st.info("No dawn detections (03:00-10:00) in the current filters.")
             else:
-                # Earliest detection per day — both in local wall-clock time
+                # Earliest detection per day — convert from UTC to local time
                 dawn_earliest = (
                     dawn_df.groupby("date")["timestamp"]
                     .min()
                     .reset_index(name="earliest_detection")
                 )
-                dawn_earliest["earliest_hour"] = (
-                    dawn_earliest["earliest_detection"].dt.hour
-                    + dawn_earliest["earliest_detection"].dt.minute / 60.0
-                )
+                dawn_earliest["earliest_hour"] = to_local_hour(dawn_earliest["earliest_detection"])
 
                 # Sunrise hour from daily weather (local time)
                 sunrise_df = weather_daily[["date", "sunrise"]].copy()
