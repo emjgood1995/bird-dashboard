@@ -339,16 +339,10 @@ st.sidebar.header("Explore")
 page = st.sidebar.radio(
     "View",
     [
-        "Most Common Species",
-        "Time of Day",
-        "Trends",
-        "Heatmap",
-        "Community Composition",
-        "Status Over Time",
-        "Status by Hour",
-        "Review / Richness",
-        "Phenology",
-        "Ecology",
+        "Overview",
+        "Activity & Trends",
+        "Community & Status",
+        "Ecology & Phenology",
         "Data Quality & Records",
         "Species Explorer",
     ],
@@ -464,8 +458,8 @@ kpi3.metric("Average Confidence",
 
 st.divider()
 
-# ── Most Common Species ─────────────────────────────────────────────────────
-if page == "Most Common Species":
+# ── Overview ────────────────────────────────────────────────────────────────
+if page == "Overview":
     top = (
         filtered["Com_Name"].value_counts()
         .head(20)
@@ -485,8 +479,8 @@ if page == "Most Common Species":
     fig.update_traces(marker_line_width=0)
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Time of Day ─────────────────────────────────────────────────────────────
-elif page == "Time of Day":
+# ── Activity & Trends ───────────────────────────────────────────────────────
+elif page == "Activity & Trends":
 
     def tod_chart(data: pd.DataFrame, title: str, by_species: bool):
         """Render one Activity by Hour chart."""
@@ -604,8 +598,46 @@ elif page == "Time of Day":
         tod_chart(filtered, f"Activity by Hour · {month_label} · {years_label} · {season_label}",
                   show_by_species)
 
-# ── Trends (Yearly / Monthly / Weekly) ─────────────────────────────────────
-elif page == "Trends":
+    st.divider()
+
+    # ── Heatmap ──
+    st.subheader("Activity Heatmap")
+
+    heatmap_data = (
+        filtered.groupby(["month", "hour"])
+        .size()
+        .reset_index(name="Count")
+    )
+    # Pivot to a full 12×24 grid so every month gets its own row
+    heatmap_pivot = heatmap_data.pivot(index="month", columns="hour", values="Count").fillna(0)
+    heatmap_pivot = heatmap_pivot.reindex(index=range(1, 13), columns=range(24), fill_value=0)
+
+    fig = px.imshow(
+        heatmap_pivot.values,
+        x=list(range(24)),
+        y=list(MONTH_LABELS.values()),
+        title="Activity Heatmap · Hour vs Month",
+        color_continuous_scale=HEATMAP_SCALE,
+        labels={"x": "Hour of day", "y": "Month", "color": "Detections"},
+        aspect="auto",
+    )
+    fig.update_layout(
+        xaxis=dict(dtick=1),
+        yaxis=dict(dtick=1),
+        coloraxis_colorbar=dict(
+            title="Detections",
+            tickfont=dict(size=11, color="#4a5c44"),
+            title_font=dict(size=12, color="#4a5c44"),
+            thickness=14,
+        ),
+    )
+    st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── Trends (Yearly / Monthly / Weekly) ──
+    st.subheader("Detection Trends")
+
     # Yearly
     yearly = filtered.dropna(subset=["timestamp"]).copy()
     yearly = yearly.groupby("year").size().reset_index(name="Count")
@@ -660,40 +692,8 @@ elif page == "Trends":
     )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Heatmap ─────────────────────────────────────────────────────────────────
-elif page == "Heatmap":
-    heatmap_data = (
-        filtered.groupby(["month", "hour"])
-        .size()
-        .reset_index(name="Count")
-    )
-    # Pivot to a full 12×24 grid so every month gets its own row
-    heatmap_pivot = heatmap_data.pivot(index="month", columns="hour", values="Count").fillna(0)
-    heatmap_pivot = heatmap_pivot.reindex(index=range(1, 13), columns=range(24), fill_value=0)
-
-    fig = px.imshow(
-        heatmap_pivot.values,
-        x=list(range(24)),
-        y=list(MONTH_LABELS.values()),
-        title="Activity Heatmap · Hour vs Month",
-        color_continuous_scale=HEATMAP_SCALE,
-        labels={"x": "Hour of day", "y": "Month", "color": "Detections"},
-        aspect="auto",
-    )
-    fig.update_layout(
-        xaxis=dict(dtick=1),
-        yaxis=dict(dtick=1),
-        coloraxis_colorbar=dict(
-            title="Detections",
-            tickfont=dict(size=11, color="#4a5c44"),
-            title_font=dict(size=12, color="#4a5c44"),
-            thickness=14,
-        ),
-    )
-    st.plotly_chart(style_fig(fig), use_container_width=True)
-
-# ── Community Composition ───────────────────────────────────────────────────
-elif page == "Community Composition":
+# ── Community & Status ──────────────────────────────────────────────────────
+elif page == "Community & Status":
     st.subheader("Community Composition by Hour (Top 20 species, %)")
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
@@ -828,8 +828,11 @@ elif page == "Community Composition":
     else:
         composition_plot(comp_df, f"{month_label} · {years_label} · {season_label}")
 
-# ── Status Over Time ────────────────────────────────────────────────────────
-elif page == "Status Over Time":
+    st.divider()
+
+    # ── Status Over Time ──
+    st.subheader("Status Over Time")
+
     tmp = filtered.dropna(subset=["timestamp"]).copy()
     tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
 
@@ -854,8 +857,11 @@ elif page == "Status Over Time":
     )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Status by Hour ──────────────────────────────────────────────────────────
-elif page == "Status by Hour":
+    st.divider()
+
+    # ── Status by Hour ──
+    st.subheader("Status by Hour")
+
     status_hour = (
         filtered.groupby(["hour", "UK_Status"])
         .size()
@@ -876,171 +882,8 @@ elif page == "Status by Hour":
     fig.update_traces(line=dict(width=2), marker=dict(size=5))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Review / Richness ───────────────────────────────────────────────────────
-elif page == "Review / Richness":
-    st.subheader("Species Richness Over Time")
-
-    tmp = filtered.dropna(subset=["timestamp"]).copy()
-    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
-
-    richness_month = (
-        tmp.groupby("month_period")["Com_Name"]
-        .nunique()
-        .reset_index(name="Unique_Species")
-    )
-
-    fig = px.area(
-        richness_month,
-        x="month_period", y="Unique_Species",
-        title="Unique Species per Month",
-        labels={"month_period": "Month", "Unique_Species": "Unique species"},
-    )
-    fig.update_traces(
-        line=dict(color=PRIMARY, width=2),
-        fillcolor="rgba(61,107,68,0.14)",
-        marker=dict(size=5, color=PRIMARY),
-        mode="lines+markers",
-    )
-    st.plotly_chart(style_fig(fig), use_container_width=True)
-
-    st.subheader("Review Recording: Top Species to Check")
-
-    if len(review_df) == 0:
-        st.info("No 'Review Recording' rows in the current filter.")
-    else:
-        top_review = (
-            review_df["Sci_Name"]
-            .value_counts()
-            .head(20)
-            .reset_index()
-        )
-        top_review.columns = ["Sci_Name", "Count"]
-        top_review = top_review.sort_values("Count", ascending=True)
-
-        fig = px.bar(
-            top_review,
-            x="Count", y="Sci_Name", orientation="h",
-            title="Top 20 Latin Names Needing Review",
-            color="Count",
-            color_continuous_scale=[[0, "#c4a07a"], [1, "#7a5c3d"]],
-            labels={"Count": "Detections", "Sci_Name": ""},
-        )
-        fig.update_coloraxes(showscale=False)
-        fig.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-        st.subheader("Review Recording: Confidence by Hour")
-
-        conf_hour = (
-            review_df.groupby("hour")["Confidence"]
-            .mean()
-            .reset_index(name="Avg_Confidence")
-        )
-        fig = px.line(
-            conf_hour,
-            x="hour", y="Avg_Confidence",
-            markers=True,
-            title="Average Confidence by Hour (Review Recording only)",
-            labels={"hour": "Hour of day", "Avg_Confidence": "Avg confidence"},
-        )
-        fig.update_traces(
-            line=dict(color=TERTIARY, width=2),
-            marker=dict(size=5, color=TERTIARY),
-        )
-        fig.update_layout(xaxis=dict(dtick=1))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
-
-    # ---- Validate Review Recording species ----
-    st.subheader("Validate a 'Review Recording' Species")
-
-    has_token = False
-    try:
-        _gh_token = st.secrets["GITHUB_TOKEN"]
-        has_token = bool(_gh_token)
-    except (KeyError, FileNotFoundError):
-        pass
-
-    if not has_token:
-        st.info(
-            "To validate species from here, configure a `GITHUB_TOKEN` secret "
-            "with Contents write permission on the repo."
-        )
-    elif len(review_df) == 0:
-        st.success("No species currently need review!")
-    else:
-        review_species = (
-            review_df[["Sci_Name", "Com_Name"]]
-            .drop_duplicates()
-            .sort_values("Sci_Name")
-        )
-        display_labels = (
-            review_species["Sci_Name"] + "  (" + review_species["Com_Name"] + ")"
-        ).tolist()
-
-        VALID_STATUSES = [
-            "Resident", "Summer visitor", "Winter visitor",
-            "Passage migrant", "Scarce visitor", "Rare vagrant",
-            "Introduced species", "Reintroduced", "Extinct", "False Positive", "Other",
-        ]
-
-        with st.form("validate_review_species"):
-            chosen = st.selectbox("Species to validate", display_labels)
-            new_status = st.selectbox("Assign status", VALID_STATUSES)
-            submitted = st.form_submit_button("Save & push to GitHub")
-
-        if submitted:
-            idx = display_labels.index(chosen)
-            sci_name = review_species.iloc[idx]["Sci_Name"]
-            com_name = review_species.iloc[idx]["Com_Name"]
-
-            EXCEL_PATH = "UK_Birds_Generalized_Status.xlsx"
-            REPO = "emjgood1995/bird-dashboard"
-            TOKEN = st.secrets["GITHUB_TOKEN"]
-
-            # 1. Update the local Excel file
-            wb = openpyxl.load_workbook(EXCEL_PATH)
-            ws = wb.active
-            ws.append([com_name, sci_name, new_status])
-            wb.save(EXCEL_PATH)
-
-            # 2. Push to GitHub via Contents API
-            api_url = f"https://api.github.com/repos/{REPO}/contents/{EXCEL_PATH}"
-            headers = {
-                "Authorization": f"Bearer {TOKEN}",
-                "Accept": "application/vnd.github+json",
-            }
-
-            # GET current SHA
-            get_resp = requests.get(api_url, headers=headers, timeout=15)
-            if get_resp.status_code != 200:
-                st.error(f"GitHub GET failed ({get_resp.status_code}): {get_resp.text}")
-            else:
-                sha = get_resp.json()["sha"]
-                file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
-                encoded = base64.b64encode(file_bytes).decode()
-
-                put_resp = requests.put(
-                    api_url,
-                    headers=headers,
-                    json={
-                        "message": f"Add species status: {sci_name} -> {new_status}",
-                        "content": encoded,
-                        "sha": sha,
-                    },
-                    timeout=30,
-                )
-                if put_resp.status_code in (200, 201):
-                    st.cache_data.clear()
-                    st.success(
-                        f"Saved **{sci_name}** as *{new_status}* and pushed to GitHub."
-                    )
-                else:
-                    st.error(
-                        f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}"
-                    )
-
-# ── Phenology ──────────────────────────────────────────────────────────────
-elif page == "Phenology":
+# ── Ecology & Phenology ────────────────────────────────────────────────────
+elif page == "Ecology & Phenology":
 
     # ── Dawn Chorus Tracker ──
     st.subheader("Dawn Chorus Tracker")
@@ -1173,8 +1016,35 @@ elif page == "Phenology":
             fig.update_traces(line=dict(width=2))
             st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Ecology ────────────────────────────────────────────────────────────────
-elif page == "Ecology":
+    st.divider()
+
+    # ── Species Richness Over Time ──
+    st.subheader("Species Richness Over Time")
+
+    tmp = filtered.dropna(subset=["timestamp"]).copy()
+    tmp["month_period"] = tmp["timestamp"].dt.to_period("M").astype(str)
+
+    richness_month = (
+        tmp.groupby("month_period")["Com_Name"]
+        .nunique()
+        .reset_index(name="Unique_Species")
+    )
+
+    fig = px.area(
+        richness_month,
+        x="month_period", y="Unique_Species",
+        title="Unique Species per Month",
+        labels={"month_period": "Month", "Unique_Species": "Unique species"},
+    )
+    fig.update_traces(
+        line=dict(color=PRIMARY, width=2),
+        fillcolor="rgba(61,107,68,0.14)",
+        marker=dict(size=5, color=PRIMARY),
+        mode="lines+markers",
+    )
+    st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
 
     # ── Species Co-occurrence ──
     st.subheader("Species Co-occurrence")
@@ -1469,6 +1339,147 @@ elif page == "Data Quality & Records":
             streak_data.rename(columns={"Com_Name": "Species", "Longest_Streak": "Longest Streak (days)"}),
             hide_index=True,
         )
+
+    st.divider()
+
+    # ── Review Recording: Top Species to Check + Confidence by Hour ──
+    st.subheader("Review Recording: Top Species to Check")
+
+    if len(review_df) == 0:
+        st.info("No 'Review Recording' rows in the current filter.")
+    else:
+        top_review = (
+            review_df["Sci_Name"]
+            .value_counts()
+            .head(20)
+            .reset_index()
+        )
+        top_review.columns = ["Sci_Name", "Count"]
+        top_review = top_review.sort_values("Count", ascending=True)
+
+        fig = px.bar(
+            top_review,
+            x="Count", y="Sci_Name", orientation="h",
+            title="Top 20 Latin Names Needing Review",
+            color="Count",
+            color_continuous_scale=[[0, "#c4a07a"], [1, "#7a5c3d"]],
+            labels={"Count": "Detections", "Sci_Name": ""},
+        )
+        fig.update_coloraxes(showscale=False)
+        fig.update_traces(marker_line_width=0)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        st.subheader("Review Recording: Confidence by Hour")
+
+        conf_hour = (
+            review_df.groupby("hour")["Confidence"]
+            .mean()
+            .reset_index(name="Avg_Confidence")
+        )
+        fig = px.line(
+            conf_hour,
+            x="hour", y="Avg_Confidence",
+            markers=True,
+            title="Average Confidence by Hour (Review Recording only)",
+            labels={"hour": "Hour of day", "Avg_Confidence": "Avg confidence"},
+        )
+        fig.update_traces(
+            line=dict(color=TERTIARY, width=2),
+            marker=dict(size=5, color=TERTIARY),
+        )
+        fig.update_layout(xaxis=dict(dtick=1))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    st.divider()
+
+    # ── Validate Review Recording species ──
+    st.subheader("Validate a 'Review Recording' Species")
+
+    has_token = False
+    try:
+        _gh_token = st.secrets["GITHUB_TOKEN"]
+        has_token = bool(_gh_token)
+    except (KeyError, FileNotFoundError):
+        pass
+
+    if not has_token:
+        st.info(
+            "To validate species from here, configure a `GITHUB_TOKEN` secret "
+            "with Contents write permission on the repo."
+        )
+    elif len(review_df) == 0:
+        st.success("No species currently need review!")
+    else:
+        review_species = (
+            review_df[["Sci_Name", "Com_Name"]]
+            .drop_duplicates()
+            .sort_values("Sci_Name")
+        )
+        display_labels = (
+            review_species["Sci_Name"] + "  (" + review_species["Com_Name"] + ")"
+        ).tolist()
+
+        VALID_STATUSES = [
+            "Resident", "Summer visitor", "Winter visitor",
+            "Passage migrant", "Scarce visitor", "Rare vagrant",
+            "Introduced species", "Reintroduced", "Extinct", "False Positive", "Other",
+        ]
+
+        with st.form("validate_review_species"):
+            chosen = st.selectbox("Species to validate", display_labels)
+            new_status = st.selectbox("Assign status", VALID_STATUSES)
+            submitted = st.form_submit_button("Save & push to GitHub")
+
+        if submitted:
+            idx = display_labels.index(chosen)
+            sci_name = review_species.iloc[idx]["Sci_Name"]
+            com_name = review_species.iloc[idx]["Com_Name"]
+
+            EXCEL_PATH = "UK_Birds_Generalized_Status.xlsx"
+            REPO = "emjgood1995/bird-dashboard"
+            TOKEN = st.secrets["GITHUB_TOKEN"]
+
+            # 1. Update the local Excel file
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            ws = wb.active
+            ws.append([com_name, sci_name, new_status])
+            wb.save(EXCEL_PATH)
+
+            # 2. Push to GitHub via Contents API
+            api_url = f"https://api.github.com/repos/{REPO}/contents/{EXCEL_PATH}"
+            headers = {
+                "Authorization": f"Bearer {TOKEN}",
+                "Accept": "application/vnd.github+json",
+            }
+
+            # GET current SHA
+            get_resp = requests.get(api_url, headers=headers, timeout=15)
+            if get_resp.status_code != 200:
+                st.error(f"GitHub GET failed ({get_resp.status_code}): {get_resp.text}")
+            else:
+                sha = get_resp.json()["sha"]
+                file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
+                encoded = base64.b64encode(file_bytes).decode()
+
+                put_resp = requests.put(
+                    api_url,
+                    headers=headers,
+                    json={
+                        "message": f"Add species status: {sci_name} -> {new_status}",
+                        "content": encoded,
+                        "sha": sha,
+                    },
+                    timeout=30,
+                )
+                if put_resp.status_code in (200, 201):
+                    st.cache_data.clear()
+                    st.success(
+                        f"Saved **{sci_name}** as *{new_status}* and pushed to GitHub."
+                    )
+                else:
+                    st.error(
+                        f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}"
+                    )
 
 # ── Species Explorer ──────────────────────────────────────────────────────
 elif page == "Species Explorer":
