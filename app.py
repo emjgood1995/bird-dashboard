@@ -1087,30 +1087,55 @@ elif page == "Community":
 
     st.divider()
 
-    # ── Status Over Time ──
-    st.subheader("Status Over Time")
+    # ── Status / Diet Over Time ──
+    st.subheader("Composition Over Time")
+
+    comp_mode = st.radio("Breakdown by", ["UK Status", "Diet"], horizontal=True, key="comp_over_time")
 
     tmp = filtered.dropna(subset=["timestamp"]).copy()
 
-    status_month = (
-        tmp.groupby(["month", "UK_Status"])
-        .size()
-        .reset_index(name="Count")
-    )
-    status_month["Percent"] = (
-        status_month.groupby("month")["Count"]
-        .transform(lambda x: (x / x.sum()) * 100)
-    )
+    if comp_mode == "UK Status":
+        comp_col = "UK_Status"
+        comp_label = "UK Status"
+        comp_month = (
+            tmp.groupby(["month", comp_col])
+            .size()
+            .reset_index(name="Count")
+        )
+        comp_month["Percent"] = (
+            comp_month.groupby("month")["Count"]
+            .transform(lambda x: (x / x.sum()) * 100)
+        )
+        cmap = status_color_map(comp_month[comp_col].unique())
+        fig = px.area(
+            comp_month,
+            x="month", y="Percent",
+            color=comp_col,
+            title="Monthly Status Composition",
+            labels={"month": "Month", "Percent": "% of detections", comp_col: comp_label},
+            color_discrete_map=cmap,
+        )
+    else:
+        comp_col = "Diet"
+        comp_label = "Diet"
+        comp_month = (
+            tmp.groupby(["month", comp_col])
+            .size()
+            .reset_index(name="Count")
+        )
+        comp_month["Percent"] = (
+            comp_month.groupby("month")["Count"]
+            .transform(lambda x: (x / x.sum()) * 100)
+        )
+        fig = px.area(
+            comp_month,
+            x="month", y="Percent",
+            color=comp_col,
+            title="Monthly Diet Composition",
+            labels={"month": "Month", "Percent": "% of detections", comp_col: comp_label},
+            color_discrete_map=DIET_COLORS,
+        )
 
-    cmap = status_color_map(status_month["UK_Status"].unique())
-    fig = px.area(
-        status_month,
-        x="month", y="Percent",
-        color="UK_Status",
-        title="Monthly Status Composition",
-        labels={"month": "Month", "Percent": "% of detections", "UK_Status": "UK Status"},
-        color_discrete_map=cmap,
-    )
     fig.update_layout(xaxis=dict(
         dtick=1,
         tickmode="array",
