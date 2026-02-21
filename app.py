@@ -1,7 +1,11 @@
 import sqlite3
+import base64
+import pathlib
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import requests
+import openpyxl
 
 st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon="🐦")
 
@@ -919,3 +923,92 @@ elif page == "Review / Richness":
         )
         fig.update_layout(xaxis=dict(dtick=1))
         st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    # ---- Validate Review Recording species ----
+    st.subheader("Validate a 'Review Recording' Species")
+
+    has_token = False
+    try:
+        _gh_token = st.secrets["GITHUB_TOKEN"]
+        has_token = bool(_gh_token)
+    except (KeyError, FileNotFoundError):
+        pass
+
+    if not has_token:
+        st.info(
+            "To validate species from here, configure a `GITHUB_TOKEN` secret "
+            "with Contents write permission on the repo."
+        )
+    elif len(review_df) == 0:
+        st.success("No species currently need review!")
+    else:
+        review_species = (
+            review_df[["Sci_Name", "Com_Name"]]
+            .drop_duplicates()
+            .sort_values("Sci_Name")
+        )
+        display_labels = (
+            review_species["Sci_Name"] + "  (" + review_species["Com_Name"] + ")"
+        ).tolist()
+
+        VALID_STATUSES = [
+            "Resident", "Summer visitor", "Winter visitor",
+            "Passage migrant", "Scarce visitor", "Rare vagrant",
+            "Introduced species", "Reintroduced", "Extinct", "Other",
+        ]
+
+        with st.form("validate_review_species"):
+            chosen = st.selectbox("Species to validate", display_labels)
+            new_status = st.selectbox("Assign status", VALID_STATUSES)
+            submitted = st.form_submit_button("Save & push to GitHub")
+
+        if submitted:
+            idx = display_labels.index(chosen)
+            sci_name = review_species.iloc[idx]["Sci_Name"]
+            com_name = review_species.iloc[idx]["Com_Name"]
+
+            EXCEL_PATH = "UK_Birds_Generalized_Status.xlsx"
+            REPO = "emjgood1995/bird-dashboard"
+            TOKEN = st.secrets["GITHUB_TOKEN"]
+
+            # 1. Update the local Excel file
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            ws = wb.active
+            ws.append([com_name, sci_name, new_status])
+            wb.save(EXCEL_PATH)
+
+            # 2. Push to GitHub via Contents API
+            api_url = f"https://api.github.com/repos/{REPO}/contents/{EXCEL_PATH}"
+            headers = {
+                "Authorization": f"Bearer {TOKEN}",
+                "Accept": "application/vnd.github+json",
+            }
+
+            # GET current SHA
+            get_resp = requests.get(api_url, headers=headers, timeout=15)
+            if get_resp.status_code != 200:
+                st.error(f"GitHub GET failed ({get_resp.status_code}): {get_resp.text}")
+            else:
+                sha = get_resp.json()["sha"]
+                file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
+                encoded = base64.b64encode(file_bytes).decode()
+
+                put_resp = requests.put(
+                    api_url,
+                    headers=headers,
+                    json={
+                        "message": f"Add species status: {sci_name} -> {new_status}",
+                        "content": encoded,
+                        "sha": sha,
+                    },
+                    timeout=30,
+                )
+                if put_resp.status_code in (200, 201):
+                    st.cache_data.clear()
+                    st.success(
+                        f"Saved **{sci_name}** as *{new_status}* and pushed to GitHub."
+                    )
+                else:
+                    st.error(
+                        f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}"
+                    )
