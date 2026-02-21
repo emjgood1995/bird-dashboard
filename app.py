@@ -315,8 +315,7 @@ page = st.sidebar.radio(
     [
         "Most Common Species",
         "Time of Day",
-        "Weekly Trends",
-        "Monthly Trends",
+        "Trends",
         "Heatmap",
         "Community Composition",
         "Status Over Time",
@@ -575,24 +574,25 @@ elif page == "Time of Day":
         tod_chart(filtered, f"Activity by Hour · {month_label} · {years_label} · {season_label}",
                   show_by_species)
 
-# ── Weekly Trends ───────────────────────────────────────────────────────────
-elif page == "Weekly Trends":
-    weekly = filtered.groupby("week").size().reset_index(name="Count")
-    fig = px.area(
-        weekly, x="week", y="Count",
-        title="Weekly Detection Trends",
-        labels={"week": "Week of year", "Count": "Detections"},
+# ── Trends (Yearly / Monthly / Weekly) ─────────────────────────────────────
+elif page == "Trends":
+    # Yearly
+    yearly = filtered.dropna(subset=["timestamp"]).copy()
+    yearly = yearly.groupby("year").size().reset_index(name="Count")
+    yearly["year"] = yearly["year"].astype(int)
+    fig = px.bar(
+        yearly, x="year", y="Count",
+        title="Yearly Detection Trends",
+        labels={"year": "Year", "Count": "Detections"},
+        color="Count",
+        color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
     )
-    fig.update_traces(
-        line=dict(color=SECONDARY, width=2),
-        fillcolor="rgba(74,112,144,0.14)",
-        marker=dict(size=5, color=SECONDARY),
-        mode="lines+markers",
-    )
+    fig.update_coloraxes(showscale=False)
+    fig.update_traces(marker_line_width=0)
+    fig.update_layout(xaxis=dict(dtick=1))
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
-# ── Monthly Trends ──────────────────────────────────────────────────────────
-elif page == "Monthly Trends":
+    # Monthly
     monthly = filtered.groupby("month").size().reset_index(name="Count")
     fig = px.area(
         monthly, x="month", y="Count",
@@ -611,6 +611,21 @@ elif page == "Monthly Trends":
         tickvals=list(MONTH_LABELS.keys()),
         ticktext=list(MONTH_LABELS.values()),
     ))
+    st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    # Weekly
+    weekly = filtered.groupby("week").size().reset_index(name="Count")
+    fig = px.area(
+        weekly, x="week", y="Count",
+        title="Weekly Detection Trends",
+        labels={"week": "Week of year", "Count": "Detections"},
+    )
+    fig.update_traces(
+        line=dict(color=SECONDARY, width=2),
+        fillcolor="rgba(74,112,144,0.14)",
+        marker=dict(size=5, color=SECONDARY),
+        mode="lines+markers",
+    )
     st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Heatmap ─────────────────────────────────────────────────────────────────
