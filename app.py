@@ -2271,11 +2271,12 @@ elif page == "Species Explorer":
                 peak_month = sp_ts["month"].value_counts().idxmax()
                 sk4.metric("Peak Month", MONTH_LABELS.get(peak_month, str(peak_month)))
 
-        # Update species status form
+        # Update species status & diet form
         st.divider()
         current_status = sp_df["UK_Status"].mode().iloc[0] if len(sp_df) > 0 else "Unknown"
-        st.markdown(f"#### Update Status for {se_com}")
-        st.caption(f"Current status: **{current_status}**")
+        current_diet = sp_df["Diet"].mode().iloc[0] if len(sp_df) > 0 else "Unclassified"
+        st.markdown(f"#### Update Status & Diet for {se_com}")
+        st.caption(f"Current status: **{current_status}** · Current diet: **{current_diet}**")
 
         has_token = False
         try:
@@ -2295,13 +2296,26 @@ elif page == "Species Explorer":
                 "Passage migrant", "Scarce visitor", "Rare vagrant",
                 "Introduced species", "Reintroduced", "Extinct", "False Positive", "Other",
             ]
-            default_idx = SE_STATUSES.index(current_status) if current_status in SE_STATUSES else 0
+            SE_DIETS = ["Insectivore", "Granivore", "Omnivore", "Frugivore",
+                        "Carnivore", "Piscivore", "Herbivore"]
+            default_status_idx = SE_STATUSES.index(current_status) if current_status in SE_STATUSES else 0
+            default_diet_idx = SE_DIETS.index(current_diet) if current_diet in SE_DIETS else 0
 
             with st.form("se_update_status"):
-                se_new_status = st.selectbox("Assign status", SE_STATUSES, index=default_idx, key="se_new_status")
+                se_new_status = st.selectbox("Assign status", SE_STATUSES, index=default_status_idx, key="se_new_status")
+                se_new_diet = st.selectbox("Assign diet", SE_DIETS, index=default_diet_idx, key="se_new_diet")
                 se_submitted = st.form_submit_button("Save & push to GitHub")
 
             if se_submitted:
+                # ── Save diet to local JSON ──
+                diet_changed = se_new_diet != current_diet
+                if diet_changed:
+                    diet_data = load_diet_map()
+                    diet_data[se_sci] = se_new_diet
+                    with open("species_diet.json", "w") as f:
+                        json.dump(diet_data, f, indent=2, sort_keys=True)
+
+                # ── Save status to Excel & push to GitHub ──
                 EXCEL_PATH = "UK_Birds_Generalized_Status.xlsx"
                 REPO = "emjgood1995/bird-dashboard"
                 TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -2350,6 +2364,9 @@ elif page == "Species Explorer":
                     )
                     if put_resp.status_code in (200, 201):
                         st.cache_data.clear()
-                        st.success(f"Saved **{se_sci}** as *{se_new_status}* and pushed to GitHub.")
+                        parts = [f"Status: *{se_new_status}*"]
+                        if diet_changed:
+                            parts.append(f"Diet: *{se_new_diet}*")
+                        st.success(f"Saved **{se_sci}** — {', '.join(parts)}. Pushed to GitHub.")
                     else:
                         st.error(f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}")
