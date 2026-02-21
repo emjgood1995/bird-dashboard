@@ -1534,7 +1534,7 @@ elif page == "Species Explorer":
             sk1.metric("Total Detections", f"{len(sp_df):,}")
             sp_ts = sp_df.dropna(subset=["timestamp"])
             if len(sp_ts) > 0:
-                sk2.metric("Date Range", f"{sp_ts['timestamp'].min().strftime('%Y-%m-%d')} to {sp_ts['timestamp'].max().strftime('%Y-%m-%d')}")
+                sk2.metric("Last Seen", sp_ts['timestamp'].max().strftime('%Y-%m-%d'))
                 peak_hour = sp_ts["hour"].value_counts().idxmax()
                 sk3.metric("Peak Hour", f"{peak_hour}:00")
                 peak_month = sp_ts["month"].value_counts().idxmax()
