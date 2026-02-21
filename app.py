@@ -637,18 +637,23 @@ elif page == "Heatmap":
         .size()
         .reset_index(name="Count")
     )
-    fig = px.density_heatmap(
-        heatmap_data, x="hour", y="month", z="Count",
+    # Pivot to a full 12×24 grid so every month gets its own row
+    heatmap_pivot = heatmap_data.pivot(index="month", columns="hour", values="Count").fillna(0)
+    heatmap_pivot = heatmap_pivot.reindex(index=range(1, 13), columns=range(24), fill_value=0)
+
+    fig = px.imshow(
+        heatmap_pivot,
         title="Activity Heatmap · Hour vs Month",
         color_continuous_scale=HEATMAP_SCALE,
-        labels={"hour": "Hour of day", "month": "Month", "Count": "Detections"},
+        labels={"x": "Hour of day", "y": "Month", "color": "Detections"},
+        aspect="auto",
     )
     fig.update_layout(
         xaxis=dict(dtick=1),
         yaxis=dict(
             dtick=1,
             tickmode="array",
-            tickvals=list(MONTH_LABELS.keys()),
+            tickvals=list(range(12)),
             ticktext=list(MONTH_LABELS.values()),
         ),
         coloraxis_colorbar=dict(
