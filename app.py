@@ -372,6 +372,55 @@ filtered = filtered[
     (filtered["timestamp"].dt.date <= end_date)
 ].copy()
 
+def season_from_month(m: int) -> str:
+    if m in (3, 4, 5):  return "Spring"
+    if m in (6, 7, 8):  return "Summer"
+    if m in (9, 10, 11): return "Autumn"
+    return "Winter"
+
+filtered["year"]      = filtered["timestamp"].dt.year.astype("Int64")
+filtered["month_num"] = filtered["timestamp"].dt.month.astype("Int64")
+filtered["season"]    = filtered["month_num"].apply(lambda m: season_from_month(m) if pd.notna(m) else None)
+
+# ── Year / Season / Month sidebar filters ──
+st.sidebar.subheader("Year / Season / Month")
+
+_years_available = sorted(filtered["year"].dropna().unique())
+year_mode = st.sidebar.selectbox("Years", ["All years", "Select years"], index=0)
+selected_years = []
+if year_mode == "Select years":
+    selected_years = st.sidebar.multiselect(
+        "Choose years", _years_available,
+        default=_years_available[-1:] if _years_available else [],
+    )
+    if selected_years:
+        filtered = filtered[filtered["year"].isin(selected_years)].copy()
+
+selected_season = st.sidebar.selectbox("Season", ["All", "Spring", "Summer", "Autumn", "Winter"], index=0)
+
+MONTHS_FULL = [
+    (1, "January"), (2, "February"), (3, "March"), (4, "April"),
+    (5, "May"), (6, "June"), (7, "July"), (8, "August"),
+    (9, "September"), (10, "October"), (11, "November"), (12, "December"),
+]
+month_num_by_name = {n: m for m, n in MONTHS_FULL}
+month_names_list  = [name for _, name in MONTHS_FULL]
+
+month_mode = st.sidebar.selectbox("Months", ["All months", "Choose month"], index=0)
+chosen_month = None
+if month_mode == "Choose month":
+    chosen_month = st.sidebar.selectbox("Choose month value", month_names_list, index=0)
+
+# Keep a copy before season/month filters for compare-mode overrides
+_filtered_pre_season_month = filtered.copy()
+
+if selected_season != "All":
+    filtered = filtered[filtered["season"] == selected_season].copy()
+if month_mode == "Choose month" and chosen_month:
+    filtered = filtered[filtered["month_num"] == month_num_by_name[chosen_month]].copy()
+
+st.sidebar.divider()
+
 exclude_review = st.sidebar.checkbox("Exclude 'Review Recording' from graphs", value=True)
 review_df = filtered[filtered["UK_Status"] == "Review Recording"].copy()
 if exclude_review:
@@ -497,122 +546,128 @@ elif page == "Community Composition":
     st.subheader("Community Composition by Hour (Top 20 species, %)")
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
-    comp_df["year"]      = comp_df["timestamp"].dt.year.astype(int)
-    comp_df["month_num"] = comp_df["timestamp"].dt.month.astype(int)
-    comp_df["hour"]      = comp_df["timestamp"].dt.hour.astype(int)
 
-    MONTHS = [
-        (1, "January"), (2, "February"), (3, "March"), (4, "April"),
-        (5, "May"), (6, "June"), (7, "July"), (8, "August"),
-        (9, "September"), (10, "October"), (11, "November"), (12, "December"),
-    ]
-    month_num_by_name = {n: m for m, n in MONTHS}
-
-    def season_from_month(m: int) -> str:
-        if m in (3, 4, 5):  return "Spring"
-        if m in (6, 7, 8):  return "Summer"
-        if m in (9, 10, 11): return "Autumn"
-        return "Winter"
-
-    comp_df["season"] = comp_df["month_num"].apply(season_from_month)
-
-    # Assign each species a colour once, ranked by overall frequency in this tab's
-    # data. Both comparison plots share this map so species colours are consistent.
+    # Assign each species a colour once, ranked by overall frequency.
+    # Both comparison plots share this map so species colours are consistent.
     _species_ranked = comp_df["Com_Name"].value_counts().index.tolist()
     species_color_map = {
         sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
         for i, sp in enumerate(_species_ranked)
     }
 
-    c1, c2, c3, c4 = st.columns([1.2, 1.0, 1.2, 1.0], gap="large")
-    years_all   = sorted(comp_df["year"].unique())
-    month_names = [name for _, name in MONTHS]
+    seasons_list = ["Spring", "Summer", "Autumn", "Winter"]
 
-    with c1:
-        year_mode = st.selectbox("Years", ["All years", "Select years"], index=0)
-        selected_years = []
-        if year_mode == "Select years":
-            selected_years = st.multiselect(" ", years_all, default=years_all[-1:] if years_all else [])
+    c_cmp_m, c_cmp_s = st.columns(2, gap="large")
+    with c_cmp_m:
+        compare_months = st.checkbox("Compare two months", value=False, key="cc_cmp_months")
+    with c_cmp_s:
+        compare_seasons = st.checkbox("Compare two seasons", value=False, key="cc_cmp_seasons")
 
-    with c2:
-        selected_season = st.selectbox("Season", ["All", "Spring", "Summer", "Autumn", "Winter"], index=0)
+    # Mutually exclusive: if both are checked, the most recently toggled wins.
+    if compare_months and compare_seasons:
+        # Both can't be true at once — keep the one that was just toggled.
+        # Use session state to track which was last active.
+        prev_months  = st.session_state.get("_cc_prev_cmp_months", False)
+        prev_seasons = st.session_state.get("_cc_prev_cmp_seasons", False)
+        if compare_months != prev_months:
+            compare_seasons = False
+            st.session_state["cc_cmp_seasons"] = False
+        else:
+            compare_months = False
+            st.session_state["cc_cmp_months"] = False
+    st.session_state["_cc_prev_cmp_months"]  = compare_months
+    st.session_state["_cc_prev_cmp_seasons"] = compare_seasons
 
-    with c3:
-        month_mode = st.selectbox("Months", ["All months", "Choose month"], index=0)
-        chosen_month = None
-        if month_mode == "Choose month":
-            chosen_month = st.selectbox(" ", month_names, index=5)
+    def composition_plot(df_in: pd.DataFrame, title: str):
+        if len(df_in) == 0:
+            st.warning("No data for this selection.")
+            return
 
-    with c4:
-        compare_mode = st.checkbox("Compare two months", value=False)
+        top_species = df_in["Com_Name"].value_counts().head(20).index.tolist()
+        df_in = df_in[df_in["Com_Name"].isin(top_species)].copy()
 
-    view_df = comp_df.copy()
-    if year_mode == "Select years" and selected_years:
-        view_df = view_df[view_df["year"].isin(selected_years)].copy()
-    if selected_season != "All":
-        view_df = view_df[view_df["season"] == selected_season].copy()
-    if month_mode == "Choose month" and chosen_month:
-        view_df = view_df[view_df["month_num"] == month_num_by_name[chosen_month]].copy()
+        comp_hour = (
+            df_in.groupby(["hour", "Com_Name"])
+            .size()
+            .reset_index(name="Count")
+        )
+        comp_hour["Percent"] = (
+            comp_hour.groupby("hour")["Count"]
+            .transform(lambda x: (x / x.sum()) * 100)
+        )
 
-    if len(view_df) == 0:
+        color_map = {sp: species_color_map[sp] for sp in top_species}
+
+        fig = px.bar(
+            comp_hour,
+            x="hour", y="Percent",
+            color="Com_Name",
+            title=title,
+            labels={"hour": "Hour of day", "Percent": "% of detections", "Com_Name": "Species"},
+            category_orders={"Com_Name": top_species},
+            color_discrete_map=color_map,
+        )
+        fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
+        fig.update_traces(marker_line_width=0)
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+
+    # Build label parts from global sidebar state
+    years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
+    season_label = "All seasons" if selected_season == "All" else selected_season
+    month_label  = "All months" if month_mode == "All months" else chosen_month
+
+    # For compare modes, use pre-season/month filtered data so the compare
+    # selectors override the global season/month filters for this page.
+    _comp_base = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
+    if exclude_review:
+        _comp_base = _comp_base[_comp_base["UK_Status"] != "Review Recording"].copy()
+
+    if compare_months:
+        left, right = st.columns(2, gap="large")
+        with left:
+            month_a = st.selectbox("Month A", month_names_list, index=5, key="cc_month_a")
+        with right:
+            month_b = st.selectbox("Month B", month_names_list, index=6, key="cc_month_b")
+
+        # Apply global season filter but override month
+        _cmp_df = _comp_base.copy()
+        if selected_season != "All":
+            _cmp_df = _cmp_df[_cmp_df["season"] == selected_season].copy()
+
+        df_a = _cmp_df[_cmp_df["month_num"] == month_num_by_name[month_a]].copy()
+        df_b = _cmp_df[_cmp_df["month_num"] == month_num_by_name[month_b]].copy()
+
+        l, r = st.columns(2, gap="large")
+        with l:
+            composition_plot(df_a, f"{month_a} · {years_label} · {season_label}")
+        with r:
+            composition_plot(df_b, f"{month_b} · {years_label} · {season_label}")
+
+    elif compare_seasons:
+        left, right = st.columns(2, gap="large")
+        with left:
+            season_a = st.selectbox("Season A", seasons_list, index=0, key="cc_season_a")
+        with right:
+            season_b = st.selectbox("Season B", seasons_list, index=1, key="cc_season_b")
+
+        # Apply global month filter but override season
+        _cmp_df = _comp_base.copy()
+        if month_mode == "Choose month" and chosen_month:
+            _cmp_df = _cmp_df[_cmp_df["month_num"] == month_num_by_name[chosen_month]].copy()
+
+        df_a = _cmp_df[_cmp_df["season"] == season_a].copy()
+        df_b = _cmp_df[_cmp_df["season"] == season_b].copy()
+
+        l, r = st.columns(2, gap="large")
+        with l:
+            composition_plot(df_a, f"{season_a} · {years_label} · {month_label}")
+        with r:
+            composition_plot(df_b, f"{season_b} · {years_label} · {month_label}")
+
+    elif len(comp_df) == 0:
         st.info("No data available for the selected filters.")
     else:
-        def composition_plot(df_in: pd.DataFrame, title: str):
-            if len(df_in) == 0:
-                st.warning("No data for this selection.")
-                return
-
-            top_species = df_in["Com_Name"].value_counts().head(20).index.tolist()
-            df_in = df_in[df_in["Com_Name"].isin(top_species)].copy()
-
-            comp_hour = (
-                df_in.groupby(["hour", "Com_Name"])
-                .size()
-                .reset_index(name="Count")
-            )
-            comp_hour["Percent"] = (
-                comp_hour.groupby("hour")["Count"]
-                .transform(lambda x: (x / x.sum()) * 100)
-            )
-
-            color_map = {sp: species_color_map[sp] for sp in top_species}
-
-            fig = px.bar(
-                comp_hour,
-                x="hour", y="Percent",
-                color="Com_Name",
-                title=title,
-                labels={"hour": "Hour of day", "Percent": "% of detections", "Com_Name": "Species"},
-                category_orders={"Com_Name": top_species},
-                color_discrete_map=color_map,
-            )
-            fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
-            fig.update_traces(marker_line_width=0)
-            st.plotly_chart(style_fig(fig), use_container_width=True)
-
-        if compare_mode:
-            left, right = st.columns(2, gap="large")
-            with left:
-                month_a = st.selectbox("Month A", month_names, index=5, key="cc_month_a")
-            with right:
-                month_b = st.selectbox("Month B", month_names, index=6, key="cc_month_b")
-
-            df_a = view_df[view_df["month_num"] == month_num_by_name[month_a]].copy()
-            df_b = view_df[view_df["month_num"] == month_num_by_name[month_b]].copy()
-
-            years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
-            season_label = "All seasons" if selected_season == "All" else selected_season
-
-            l, r = st.columns(2, gap="large")
-            with l:
-                composition_plot(df_a, f"{month_a} · {years_label} · {season_label}")
-            with r:
-                composition_plot(df_b, f"{month_b} · {years_label} · {season_label}")
-        else:
-            years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
-            season_label = "All seasons" if selected_season == "All" else selected_season
-            month_label  = "All months" if month_mode == "All months" else chosen_month
-            composition_plot(view_df, f"{month_label} · {years_label} · {season_label}")
+        composition_plot(comp_df, f"{month_label} · {years_label} · {season_label}")
 
 # ── Status Over Time ────────────────────────────────────────────────────────
 elif page == "Status Over Time":
