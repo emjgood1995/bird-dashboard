@@ -458,55 +458,122 @@ if page == "Most Common Species":
 
 # ── Time of Day ─────────────────────────────────────────────────────────────
 elif page == "Time of Day":
-    show_by_species = st.checkbox("Show by species", value=False, key="tod_by_species")
 
-    if show_by_species:
-        top_sp = filtered["Com_Name"].value_counts().head(20).index.tolist()
-        tod_df = filtered[filtered["Com_Name"].isin(top_sp)].copy()
-        sp_hour = tod_df.groupby(["hour", "Com_Name"]).size().reset_index(name="Count")
+    def tod_chart(data: pd.DataFrame, title: str, by_species: bool):
+        """Render one Activity by Hour chart."""
+        if len(data) == 0:
+            st.warning("No data for this selection.")
+            return
+        if by_species:
+            top_sp = data["Com_Name"].value_counts().head(20).index.tolist()
+            tod_df = data[data["Com_Name"].isin(top_sp)].copy()
+            sp_hour = tod_df.groupby(["hour", "Com_Name"]).size().reset_index(name="Count")
+            sp_color_map = {
+                sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+                for i, sp in enumerate(top_sp)
+            }
+            fig = px.area(
+                sp_hour, x="hour", y="Count",
+                color="Com_Name",
+                title=title,
+                labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
+                category_orders={"Com_Name": top_sp},
+                color_discrete_map=sp_color_map,
+            )
+            fig.update_layout(xaxis=dict(dtick=1))
+            fig.update_traces(marker_line_width=0)
+            hourly = data.groupby("hour").size().reset_index(name="Count")
+            fig.add_scatter(
+                x=hourly["hour"], y=hourly["Count"],
+                mode="lines+markers",
+                line=dict(color="#1a2416", width=2.5, dash="dot"),
+                marker=dict(size=5, color="#1a2416"),
+                name="Total", showlegend=True,
+            )
+        else:
+            hourly = data.groupby("hour").size().reset_index(name="Count")
+            fig = px.area(
+                hourly, x="hour", y="Count",
+                title=title,
+                labels={"hour": "Hour of day", "Count": "Detections"},
+            )
+            fig.update_traces(
+                line=dict(color=PRIMARY, width=2),
+                fillcolor="rgba(61,107,68,0.14)",
+                marker=dict(size=5, color=PRIMARY),
+                mode="lines+markers",
+            )
+            fig.update_layout(xaxis=dict(dtick=1))
+        st.plotly_chart(style_fig(fig), use_container_width=True)
 
-        sp_color_map = {
-            sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
-            for i, sp in enumerate(top_sp)
-        }
+    # Controls row
+    def _tod_on_months():
+        if st.session_state.get("tod_cmp_months"):
+            st.session_state["tod_cmp_seasons"] = False
 
-        fig = px.area(
-            sp_hour, x="hour", y="Count",
-            color="Com_Name",
-            title="Activity by Hour of Day · Top 20 Species",
-            labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
-            category_orders={"Com_Name": top_sp},
-            color_discrete_map=sp_color_map,
-        )
-        fig.update_layout(xaxis=dict(dtick=1))
-        fig.update_traces(marker_line_width=0)
+    def _tod_on_seasons():
+        if st.session_state.get("tod_cmp_seasons"):
+            st.session_state["tod_cmp_months"] = False
 
-        # Add total trendline on top
-        hourly = filtered.groupby("hour").size().reset_index(name="Count")
-        fig.add_scatter(
-            x=hourly["hour"], y=hourly["Count"],
-            mode="lines+markers",
-            line=dict(color="#1a2416", width=2.5, dash="dot"),
-            marker=dict(size=5, color="#1a2416"),
-            name="Total",
-            showlegend=True,
-        )
+    tc1, tc2, tc3 = st.columns(3, gap="large")
+    with tc1:
+        show_by_species = st.checkbox("Show by species", value=False, key="tod_by_species")
+    with tc2:
+        tod_cmp_months = st.checkbox("Compare two months", value=False, key="tod_cmp_months", on_change=_tod_on_months)
+    with tc3:
+        tod_cmp_seasons = st.checkbox("Compare two seasons", value=False, key="tod_cmp_seasons", on_change=_tod_on_seasons)
+
+    # Pre-filter base for compare overrides
+    _tod_base = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
+    if exclude_review:
+        _tod_base = _tod_base[_tod_base["UK_Status"] != "Review Recording"].copy()
+
+    years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
+    season_label = "All seasons" if selected_season == "All" else selected_season
+    month_label  = "All months" if month_mode == "All months" else chosen_month
+
+    if tod_cmp_months:
+        left, right = st.columns(2, gap="large")
+        with left:
+            tod_ma = st.selectbox("Month A", month_names_list, index=5, key="tod_month_a")
+        with right:
+            tod_mb = st.selectbox("Month B", month_names_list, index=6, key="tod_month_b")
+
+        _cmp = _tod_base.copy()
+        if selected_season != "All":
+            _cmp = _cmp[_cmp["season"] == selected_season].copy()
+
+        l, r = st.columns(2, gap="large")
+        with l:
+            tod_chart(_cmp[_cmp["month_num"] == month_num_by_name[tod_ma]],
+                      f"{tod_ma} · {years_label} · {season_label}", show_by_species)
+        with r:
+            tod_chart(_cmp[_cmp["month_num"] == month_num_by_name[tod_mb]],
+                      f"{tod_mb} · {years_label} · {season_label}", show_by_species)
+
+    elif tod_cmp_seasons:
+        seasons_opts = ["Spring", "Summer", "Autumn", "Winter"]
+        left, right = st.columns(2, gap="large")
+        with left:
+            tod_sa = st.selectbox("Season A", seasons_opts, index=0, key="tod_season_a")
+        with right:
+            tod_sb = st.selectbox("Season B", seasons_opts, index=1, key="tod_season_b")
+
+        _cmp = _tod_base.copy()
+        if month_mode == "Choose month" and chosen_month:
+            _cmp = _cmp[_cmp["month_num"] == month_num_by_name[chosen_month]].copy()
+
+        l, r = st.columns(2, gap="large")
+        with l:
+            tod_chart(_cmp[_cmp["season"] == tod_sa],
+                      f"{tod_sa} · {years_label} · {month_label}", show_by_species)
+        with r:
+            tod_chart(_cmp[_cmp["season"] == tod_sb],
+                      f"{tod_sb} · {years_label} · {month_label}", show_by_species)
+
     else:
-        hourly = filtered.groupby("hour").size().reset_index(name="Count")
-        fig = px.area(
-            hourly, x="hour", y="Count",
-            title="Activity by Hour of Day",
-            labels={"hour": "Hour of day", "Count": "Detections"},
-        )
-        fig.update_traces(
-            line=dict(color=PRIMARY, width=2),
-            fillcolor="rgba(61,107,68,0.14)",
-            marker=dict(size=5, color=PRIMARY),
-            mode="lines+markers",
-        )
-        fig.update_layout(xaxis=dict(dtick=1))
-
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+        tod_chart(filtered, f"Activity by Hour · {month_label} · {years_label} · {season_label}",
+                  show_by_species)
 
 # ── Weekly Trends ───────────────────────────────────────────────────────────
 elif page == "Weekly Trends":
