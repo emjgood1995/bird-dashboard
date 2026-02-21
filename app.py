@@ -1013,8 +1013,11 @@ elif page == "Ecology & Phenology":
 
     # ── Dawn Chorus Tracker ──
     st.subheader("Dawn Chorus Tracker")
-    dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
-    dc_show_sunrise = st.checkbox("Show sunrise time", value=False, key="dc_sunrise")
+    dc_c1, dc_c2 = st.columns(2, gap="large")
+    with dc_c1:
+        dc_topn = st.slider("Top N species", 5, 20, 12, key="dc_topn")
+    with dc_c2:
+        dc_time_mode = st.radio("Time format", ["Local (GMT/BST)", "UTC"], horizontal=True, key="dc_time_mode")
 
     dc_df = filtered.dropna(subset=["timestamp"]).copy()
     dc_df = dc_df[(dc_df["hour"] >= 3) & (dc_df["hour"] <= 10)]
@@ -1026,14 +1029,16 @@ elif page == "Ecology & Phenology":
         dc_df = dc_df[dc_df["Com_Name"].isin(top_dawn)].copy()
         dc_df["date"] = dc_df["timestamp"].dt.date
 
-        # Detection timestamps are in local time; convert to UTC when comparing
-        # with sunrise (which Open-Meteo returns as smooth/UTC-like values).
-        if dc_show_sunrise:
+        # Open-Meteo sunrise is in GMT (smooth). Detections are in local time.
+        # In UTC mode: convert detections local→UTC so both align with sunrise.
+        # In local mode: use raw detection hours; shift sunrise by +1 during BST.
+        use_utc = dc_time_mode == "UTC"
+        if use_utc:
             dc_df["decimal_hour"] = to_utc_hour(dc_df["timestamp"])
-            hour_label = "Earliest hour (UTC)"
+            hour_label = "Hour (UTC)"
         else:
             dc_df["decimal_hour"] = dc_df["timestamp"].dt.hour + dc_df["timestamp"].dt.minute / 60.0
-            hour_label = "Earliest hour"
+            hour_label = "Hour (local)"
 
         earliest = (
             dc_df.groupby(["date", "Com_Name"])["decimal_hour"]
@@ -1054,23 +1059,31 @@ elif page == "Ecology & Phenology":
         )
         fig.update_traces(marker=dict(size=5, opacity=0.7))
 
-        if dc_show_sunrise:
-            # Fetch sunrise data
-            w_lat = float(dc_df["Lat"].mode().iloc[0])
-            w_lon = float(dc_df["Lon"].mode().iloc[0])
-            w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
-            w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
-            _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
-            if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
-                sunrise_daily = sunrise_daily.copy()
+        # Always show sunrise
+        w_lat = float(dc_df["Lat"].mode().iloc[0])
+        w_lon = float(dc_df["Lon"].mode().iloc[0])
+        w_start = dc_df["timestamp"].min().strftime("%Y-%m-%d")
+        w_end = dc_df["timestamp"].max().strftime("%Y-%m-%d")
+        _, sunrise_daily = fetch_weather(w_lat, w_lon, w_start, w_end)
+        if sunrise_daily is not None and "sunrise" in sunrise_daily.columns:
+            sunrise_daily = sunrise_daily.copy()
+            if use_utc:
+                # Sunrise from Open-Meteo is already GMT/UTC
                 sunrise_daily["sunrise_hour"] = (
                     sunrise_daily["sunrise"].dt.hour + sunrise_daily["sunrise"].dt.minute / 60.0
                 )
-                fig.add_scatter(
-                    x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
-                    mode="lines", line=dict(color="#c47a5a", width=2.5, dash="dash"),
-                    name="Sunrise", showlegend=True,
-                )
+            else:
+                # Convert GMT sunrise to local time (add 1 hour during BST)
+                sunrise_daily["sunrise_hour"] = sunrise_daily["sunrise"].apply(
+                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                ).dt.hour + sunrise_daily["sunrise"].apply(
+                    lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                ).dt.minute / 60.0
+            fig.add_scatter(
+                x=sunrise_daily["date"], y=sunrise_daily["sunrise_hour"],
+                mode="lines", line=dict(color="#c47a5a", width=2.5, dash="dash"),
+                name="Sunrise", showlegend=True,
+            )
 
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
@@ -1599,28 +1612,47 @@ elif page == "Weather & Activity":
             # ── 6. Dawn Chorus vs Sunrise Temperature ──
             st.subheader("Dawn Chorus vs Sunrise Temperature")
 
+            w_dawn_time_mode = st.radio("Time format", ["Local (GMT/BST)", "UTC"], horizontal=True, key="w_dawn_time_mode")
+            w_dawn_utc = w_dawn_time_mode == "UTC"
+
             dawn_df = w_df[(w_df["hour"] >= 3) & (w_df["hour"] <= 10)].copy()
             if len(dawn_df) == 0:
                 st.info("No dawn detections (03:00-10:00) in the current filters.")
             else:
-                # Earliest detection per day — convert from local to UTC
+                # Earliest detection per day
                 dawn_earliest = (
                     dawn_df.groupby("date")["timestamp"]
                     .min()
                     .reset_index(name="earliest_detection")
                 )
-                dawn_earliest["earliest_hour"] = to_utc_hour(dawn_earliest["earliest_detection"])
+                if w_dawn_utc:
+                    dawn_earliest["earliest_hour"] = to_utc_hour(dawn_earliest["earliest_detection"])
+                else:
+                    dawn_earliest["earliest_hour"] = (
+                        dawn_earliest["earliest_detection"].dt.hour
+                        + dawn_earliest["earliest_detection"].dt.minute / 60.0
+                    )
 
-                # Sunrise hour from daily weather (local time)
+                # Sunrise hour from daily weather
                 sunrise_df = weather_daily[["date", "sunrise"]].copy()
-                sunrise_df["sunrise_hour"] = (
-                    sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
-                )
+                if w_dawn_utc:
+                    sunrise_df["sunrise_hour"] = (
+                        sunrise_df["sunrise"].dt.hour + sunrise_df["sunrise"].dt.minute / 60.0
+                    )
+                else:
+                    _sr_local = sunrise_df["sunrise"].apply(
+                        lambda t: t.replace(tzinfo=_TZ_UTC).astimezone(_TZ_LONDON)
+                    )
+                    sunrise_df["sunrise_hour"] = _sr_local.dt.hour + _sr_local.dt.minute / 60.0
 
                 # Temperature at sunrise hour
                 sunrise_temps = []
                 for _, row in sunrise_df.iterrows():
-                    sr_hour = int(row["sunrise"].hour)
+                    sr_row = weather_daily[weather_daily["date"] == row["date"]]
+                    if len(sr_row):
+                        sr_hour = int(sr_row.iloc[0]["sunrise"].hour)
+                    else:
+                        sr_hour = 6
                     match = weather_hourly[
                         (weather_hourly["date"] == row["date"]) & (weather_hourly["hour"] == sr_hour)
                     ]
@@ -1632,6 +1664,8 @@ elif page == "Weather & Activity":
                 dawn_merged = dawn_earliest.merge(sunrise_temp_df, on="date", how="inner")
                 dawn_merged = dawn_merged.dropna(subset=["sunrise_temp"])
 
+                hour_suffix = "UTC" if w_dawn_utc else "local"
+
                 if len(dawn_merged) == 0:
                     st.info("No matching weather data for dawn detections.")
                 else:
@@ -1641,7 +1675,7 @@ elif page == "Weather & Activity":
                             dawn_merged, x="sunrise_temp", y="earliest_hour",
                             title="First Detection vs Sunrise Temperature",
                             labels={"sunrise_temp": "Temperature at sunrise (°C)",
-                                    "earliest_hour": "Earliest detection (hour)"},
+                                    "earliest_hour": f"Earliest detection ({hour_suffix})"},
                             hover_data={"date": True},
                         )
                         fig.update_traces(marker=dict(size=8, color=PRIMARY, opacity=0.7))
@@ -1658,8 +1692,8 @@ elif page == "Weather & Activity":
                         fig = px.scatter(
                             dawn_merged, x="sunrise_hour", y="earliest_hour",
                             title="First Detection vs Sunrise Time",
-                            labels={"sunrise_hour": "Sunrise (hour)",
-                                    "earliest_hour": "Earliest detection (hour)"},
+                            labels={"sunrise_hour": f"Sunrise ({hour_suffix})",
+                                    "earliest_hour": f"Earliest detection ({hour_suffix})"},
                             hover_data={"date": True},
                         )
                         fig.update_traces(marker=dict(size=8, color=SECONDARY, opacity=0.7))
