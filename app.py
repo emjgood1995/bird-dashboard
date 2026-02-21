@@ -1539,3 +1539,73 @@ elif page == "Species Explorer":
                 sk3.metric("Peak Hour", f"{peak_hour}:00")
                 peak_month = sp_ts["month"].value_counts().idxmax()
                 sk4.metric("Peak Month", MONTH_LABELS.get(peak_month, str(peak_month)))
+
+        # Update species status form
+        st.divider()
+        current_status = sp_df["UK_Status"].mode().iloc[0] if len(sp_df) > 0 else "Unknown"
+        st.markdown(f"#### Update Status for {se_com}")
+        st.caption(f"Current status: **{current_status}**")
+
+        has_token = False
+        try:
+            _gh_token = st.secrets["GITHUB_TOKEN"]
+            has_token = bool(_gh_token)
+        except (KeyError, FileNotFoundError):
+            pass
+
+        if not has_token:
+            st.info(
+                "To update species status, configure a `GITHUB_TOKEN` secret "
+                "with Contents write permission on the repo."
+            )
+        else:
+            SE_STATUSES = [
+                "Resident", "Summer visitor", "Winter visitor",
+                "Passage migrant", "Scarce visitor", "Rare vagrant",
+                "Introduced species", "Reintroduced", "Extinct", "False Positive", "Other",
+            ]
+            default_idx = SE_STATUSES.index(current_status) if current_status in SE_STATUSES else 0
+
+            with st.form("se_update_status"):
+                se_new_status = st.selectbox("Assign status", SE_STATUSES, index=default_idx, key="se_new_status")
+                se_submitted = st.form_submit_button("Save & push to GitHub")
+
+            if se_submitted:
+                EXCEL_PATH = "UK_Birds_Generalized_Status.xlsx"
+                REPO = "emjgood1995/bird-dashboard"
+                TOKEN = st.secrets["GITHUB_TOKEN"]
+
+                wb = openpyxl.load_workbook(EXCEL_PATH)
+                ws = wb.active
+                ws.append([se_com, se_sci, se_new_status])
+                wb.save(EXCEL_PATH)
+
+                api_url = f"https://api.github.com/repos/{REPO}/contents/{EXCEL_PATH}"
+                headers = {
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                }
+
+                get_resp = requests.get(api_url, headers=headers, timeout=15)
+                if get_resp.status_code != 200:
+                    st.error(f"GitHub GET failed ({get_resp.status_code}): {get_resp.text}")
+                else:
+                    sha = get_resp.json()["sha"]
+                    file_bytes = pathlib.Path(EXCEL_PATH).read_bytes()
+                    encoded = base64.b64encode(file_bytes).decode()
+
+                    put_resp = requests.put(
+                        api_url,
+                        headers=headers,
+                        json={
+                            "message": f"Add species status: {se_sci} -> {se_new_status}",
+                            "content": encoded,
+                            "sha": sha,
+                        },
+                        timeout=30,
+                    )
+                    if put_resp.status_code in (200, 201):
+                        st.cache_data.clear()
+                        st.success(f"Saved **{se_sci}** as *{se_new_status}* and pushed to GitHub.")
+                    else:
+                        st.error(f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}")
