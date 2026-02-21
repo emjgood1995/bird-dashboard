@@ -1961,8 +1961,9 @@ elif page == "Data Quality & Records":
 # ── Records ───────────────────────────────────────────────────────────────
 elif page == "Records":
 
-    # ── Personal Records ──
-    st.subheader("Personal Records")
+    # ── First & Last Detection per Species ──
+    st.subheader("First & Last Detection per Species")
+    st.caption("Earliest and most recent date each species was recorded.")
 
     pr_df = filtered.dropna(subset=["timestamp"]).copy()
     pr_df["year"] = pr_df["timestamp"].dt.year
@@ -1978,20 +1979,22 @@ elif page == "Records":
         pr_df = pr_df[pr_df["year"].isin(pr_years)].copy()
 
     if len(pr_df) == 0:
-        st.info("No data available for personal records.")
+        st.info("No data available.")
     else:
-        # Earliest / latest detection
         det_range = pr_df.groupby("Com_Name")["timestamp"].agg(["min", "max"]).reset_index()
         det_range.columns = ["Species", "Earliest_Detection", "Latest_Detection"]
-        det_range["Earliest"] = det_range["Earliest_Detection"].dt.strftime("%m-%d")
-        det_range["Latest"] = det_range["Latest_Detection"].dt.strftime("%m-%d")
+        det_range["First Detected"] = det_range["Earliest_Detection"].dt.strftime("%Y-%m-%d")
+        det_range["Last Detected"] = det_range["Latest_Detection"].dt.strftime("%Y-%m-%d")
+        det_counts = pr_df["Com_Name"].value_counts().rename("Total Detections")
+        det_range = det_range.merge(det_counts, left_on="Species", right_index=True)
 
         pr_k1, pr_k2 = st.columns(2)
         pr_k1.metric("Total species recorded", det_range["Species"].nunique())
         pr_k2.metric("Date range", f"{pr_df['timestamp'].min().strftime('%Y-%m-%d')} to {pr_df['timestamp'].max().strftime('%Y-%m-%d')}")
 
         st.dataframe(
-            det_range[["Species", "Earliest", "Latest"]].sort_values("Earliest"),
+            det_range[["Species", "First Detected", "Last Detected", "Total Detections"]]
+            .sort_values("First Detected"),
             hide_index=True,
         )
 
