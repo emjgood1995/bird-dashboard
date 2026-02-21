@@ -1,5 +1,6 @@
 import sqlite3
 import base64
+import hashlib
 import pathlib
 import pandas as pd
 import streamlit as st
@@ -283,6 +284,25 @@ def style_fig(fig):
     return fig
 
 
+@st.cache_data(ttl=86400)
+def fetch_wiki_summary(title: str):
+    """Fetch a Wikipedia summary for the given page title."""
+    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        return {
+            "extract": data.get("extract", ""),
+            "thumbnail_url": data.get("thumbnail", {}).get("source"),
+            "page_url": data.get("content_urls", {}).get("desktop", {}).get("page", ""),
+            "title": data.get("title", title),
+        }
+    except Exception:
+        return None
+
+
 # ---- Load data ----
 @st.cache_data
 def load_data():
@@ -329,6 +349,7 @@ page = st.sidebar.radio(
         "Phenology",
         "Ecology",
         "Data Quality & Records",
+        "Species Explorer",
     ],
     label_visibility="collapsed",
 )
@@ -1447,3 +1468,73 @@ elif page == "Data Quality & Records":
             streak_data.rename(columns={"Com_Name": "Species", "Longest_Streak": "Longest Streak (days)"}),
             hide_index=True,
         )
+
+# ── Species Explorer ──────────────────────────────────────────────────────
+elif page == "Species Explorer":
+    st.subheader("Species Explorer")
+
+    se_species_pairs = (
+        filtered[["Com_Name", "Sci_Name"]]
+        .dropna()
+        .drop_duplicates()
+        .sort_values("Com_Name")
+        .reset_index(drop=True)
+    )
+
+    if len(se_species_pairs) == 0:
+        st.info("No species available for the current filters.")
+    else:
+        se_labels = (se_species_pairs["Com_Name"] + "  (" + se_species_pairs["Sci_Name"] + ")").tolist()
+        today_str = str(pd.Timestamp.now().date())
+        bird_of_day_idx = int(hashlib.md5(today_str.encode()).hexdigest(), 16) % len(se_labels)
+
+        chosen_label = st.selectbox("Choose a species", se_labels, index=bird_of_day_idx, key="se_species")
+        chosen_idx = se_labels.index(chosen_label)
+        se_com = se_species_pairs.iloc[chosen_idx]["Com_Name"]
+        se_sci = se_species_pairs.iloc[chosen_idx]["Sci_Name"]
+
+        # Fetch Wikipedia info — try scientific name first, fall back to common name
+        wiki = fetch_wiki_summary(se_sci)
+        if wiki is None:
+            wiki = fetch_wiki_summary(se_com)
+
+        if wiki is not None:
+            img_col, text_col = st.columns([1, 2], gap="large")
+            with img_col:
+                if wiki["thumbnail_url"]:
+                    st.image(wiki["thumbnail_url"], use_container_width=True)
+                else:
+                    st.info("No image available.")
+            with text_col:
+                st.markdown(f"### {se_com}")
+                st.markdown(f"*{se_sci}*")
+                st.markdown(wiki["extract"])
+                if wiki["page_url"]:
+                    st.markdown(f"[Read more on Wikipedia]({wiki['page_url']})")
+
+            if chosen_idx == bird_of_day_idx:
+                st.caption("Bird of the day — changes daily, seeded by today's date.")
+
+            first_sentence = wiki["extract"].split(". ")[0]
+            if first_sentence:
+                st.info(f"Fun fact: {first_sentence}.")
+        else:
+            st.warning("Could not fetch information from Wikipedia.")
+
+        # Detection summary for selected species
+        st.divider()
+        st.markdown(f"#### Detection Summary: {se_com}")
+        sp_df = filtered[filtered["Com_Name"] == se_com].copy()
+
+        if len(sp_df) == 0:
+            st.info("No detections for this species in the current filters.")
+        else:
+            sk1, sk2, sk3, sk4 = st.columns(4)
+            sk1.metric("Total Detections", f"{len(sp_df):,}")
+            sp_ts = sp_df.dropna(subset=["timestamp"])
+            if len(sp_ts) > 0:
+                sk2.metric("Date Range", f"{sp_ts['timestamp'].min().strftime('%Y-%m-%d')} to {sp_ts['timestamp'].max().strftime('%Y-%m-%d')}")
+                peak_hour = sp_ts["hour"].value_counts().idxmax()
+                sk3.metric("Peak Hour", f"{peak_hour}:00")
+                peak_month = sp_ts["month"].value_counts().idxmax()
+                sk4.metric("Peak Month", MONTH_LABELS.get(peak_month, str(peak_month)))
