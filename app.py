@@ -288,8 +288,9 @@ def style_fig(fig):
 def fetch_wiki_summary(title: str):
     """Fetch a Wikipedia summary for the given page title."""
     url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+    headers = {"User-Agent": "GardenBirdDashboard/1.0 (https://github.com/emjgood1995/bird-dashboard)"}
     try:
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             return None
         data = resp.json()
