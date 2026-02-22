@@ -2800,6 +2800,17 @@ elif page == "Nearby Sightings":
                             auto_highlight=True,
                             highlight_color=[255, 200, 0, 200],
                         ),
+                        pdk.Layer(
+                            "ScatterplotLayer",
+                            data=pd.DataFrame([{"lat": stn_lat, "lon": stn_lon, "species": "Your station"}]),
+                            get_position=["lon", "lat"],
+                            get_radius=500,
+                            get_fill_color=[30, 100, 220, 230],
+                            get_line_color=[255, 255, 255, 255],
+                            line_width_min_pixels=2,
+                            stroked=True,
+                            pickable=True,
+                        ),
                     ],
                     tooltip={
                         "html": "<div style='padding:6px 10px'>"
