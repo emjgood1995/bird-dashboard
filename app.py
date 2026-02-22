@@ -15,6 +15,7 @@ import openpyxl
 from scipy.spatial.distance import pdist, squareform
 from sklearn.manifold import MDS
 from zoneinfo import ZoneInfo
+import pydeck as pdk
 
 st.set_page_config(layout="wide", page_title="Garden Bird Dashboard", page_icon="🐦")
 
@@ -2780,7 +2781,30 @@ elif page == "Nearby Sightings":
             else:
                 inat_df = pd.DataFrame(rows)
 
-                st.map(inat_df, latitude="lat", longitude="lon")
+                st.pydeck_chart(pdk.Deck(
+                    initial_view_state=pdk.ViewState(
+                        latitude=stn_lat, longitude=stn_lon, zoom=10, pitch=0,
+                    ),
+                    layers=[
+                        pdk.Layer(
+                            "ScatterplotLayer",
+                            data=inat_df,
+                            get_position=["lon", "lat"],
+                            get_radius=300,
+                            get_fill_color=[30, 130, 76, 180],
+                            pickable=True,
+                            auto_highlight=True,
+                        ),
+                    ],
+                    tooltip={
+                        "html": "<b>{species}</b><br/>"
+                                "<i>{sci_name}</i><br/>"
+                                "Date: {observed_on}<br/>"
+                                "Location: {place_guess}",
+                        "style": {"backgroundColor": "#1e1e1e",
+                                  "color": "white", "fontSize": "13px"},
+                    },
+                ), height=600)
 
                 st.divider()
 
