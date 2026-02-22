@@ -820,14 +820,31 @@ if page == "Overview":
     # ── Detection Trends (Yearly / Monthly / Weekly) ──
     st.subheader("Detection Trends")
 
+    trends_metric = st.radio(
+        "Metric", ["Total Detections", "Unique Species"],
+        horizontal=True, key="trends_metric",
+    )
+    _tm_species = trends_metric == "Unique Species"
+    _tm_ylabel = "Species" if _tm_species else "Detections"
+
+    def _trend_agg(df, groupby_cols):
+        """Aggregate by size or nunique(Com_Name) based on metric toggle."""
+        if _tm_species:
+            return df.groupby(groupby_cols)["Com_Name"].nunique().reset_index(name="Count")
+        return df.groupby(groupby_cols).size().reset_index(name="Count")
+
+    def _trend_title(base):
+        suffix = " \u00b7 Unique Species" if _tm_species else ""
+        return f"{base}{suffix}"
+
     # Yearly
     yearly = filtered.dropna(subset=["timestamp"]).copy()
-    yearly = yearly.groupby("year").size().reset_index(name="Count")
+    yearly = _trend_agg(yearly, "year")
     yearly["year"] = yearly["year"].astype(int)
     fig = px.area(
         yearly, x="year", y="Count",
-        title="Yearly Detection Trends",
-        labels={"year": "Year", "Count": "Detections"},
+        title=_trend_title("Yearly Detection Trends"),
+        labels={"year": "Year", "Count": _tm_ylabel},
     )
     fig.update_traces(
         line=dict(color=PRIMARY, width=2),
@@ -857,12 +874,12 @@ if page == "Overview":
             t_df = trends_df[trends_df["year"].isin(trends_years)].copy()
 
             # Monthly by year
-            monthly_yr = t_df.groupby(["year", "month"]).size().reset_index(name="Count")
+            monthly_yr = _trend_agg(t_df, ["year", "month"])
             monthly_yr["Year"] = monthly_yr["year"].astype(str)
             fig = px.line(
                 monthly_yr, x="month", y="Count", color="Year",
-                title="Monthly Detection Trends by Year",
-                labels={"month": "Month", "Count": "Detections", "Year": "Year"},
+                title=_trend_title("Monthly Detection Trends by Year"),
+                labels={"month": "Month", "Count": _tm_ylabel, "Year": "Year"},
                 color_discrete_sequence=NATURE_PALETTE,
                 markers=True,
             )
@@ -876,12 +893,12 @@ if page == "Overview":
             st.plotly_chart(style_fig(fig), use_container_width=True)
 
             # Weekly by year
-            weekly_yr = t_df.groupby(["year", "week"]).size().reset_index(name="Count")
+            weekly_yr = _trend_agg(t_df, ["year", "week"])
             weekly_yr["Year"] = weekly_yr["year"].astype(str)
             fig = px.line(
                 weekly_yr, x="week", y="Count", color="Year",
-                title="Weekly Detection Trends by Year",
-                labels={"week": "Week of year", "Count": "Detections", "Year": "Year"},
+                title=_trend_title("Weekly Detection Trends by Year"),
+                labels={"week": "Week of year", "Count": _tm_ylabel, "Year": "Year"},
                 color_discrete_sequence=NATURE_PALETTE,
                 markers=True,
             )
@@ -889,11 +906,11 @@ if page == "Overview":
             st.plotly_chart(style_fig(fig), use_container_width=True)
     else:
         # Monthly — aggregated
-        monthly = filtered.groupby("month").size().reset_index(name="Count")
+        monthly = _trend_agg(filtered, "month")
         fig = px.area(
             monthly, x="month", y="Count",
-            title="Monthly Detection Trends",
-            labels={"month": "Month", "Count": "Detections"},
+            title=_trend_title("Monthly Detection Trends"),
+            labels={"month": "Month", "Count": _tm_ylabel},
         )
         fig.update_traces(
             line=dict(color=TERTIARY, width=2),
@@ -910,11 +927,11 @@ if page == "Overview":
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
         # Weekly — aggregated
-        weekly = filtered.groupby("week").size().reset_index(name="Count")
+        weekly = _trend_agg(filtered, "week")
         fig = px.area(
             weekly, x="week", y="Count",
-            title="Weekly Detection Trends",
-            labels={"week": "Week of year", "Count": "Detections"},
+            title=_trend_title("Weekly Detection Trends"),
+            labels={"week": "Week of year", "Count": _tm_ylabel},
         )
         fig.update_traces(
             line=dict(color=SECONDARY, width=2),
@@ -2404,6 +2421,57 @@ elif page == "Records":
             .sort_values("First Detected"),
             hide_index=True,
         )
+
+        # ── Arrival & Departure Timeline (Gantt) ──
+        st.divider()
+        st.subheader("Arrival & Departure Timeline")
+        st.caption("Presence window for each species — first to last detection.")
+
+        gantt_view = st.radio(
+            "View", ["All years combined", "Year-over-year"],
+            horizontal=True, key="gantt_view",
+        )
+        gantt_top_n = st.slider("Top N species", 5, 50, 30, key="gantt_top_n")
+
+        if gantt_view == "All years combined":
+            gantt_df = det_range.nlargest(gantt_top_n, "Total Detections").copy()
+            # Ensure single-day detections are visible
+            mask = gantt_df["Earliest_Detection"] == gantt_df["Latest_Detection"]
+            gantt_df.loc[mask, "Latest_Detection"] = gantt_df.loc[mask, "Latest_Detection"] + pd.Timedelta(days=1)
+            # Merge UK_Status for colouring
+            sp_status = pr_df.drop_duplicates("Com_Name")[["Com_Name", "UK_Status"]]
+            gantt_df = gantt_df.merge(sp_status, left_on="Species", right_on="Com_Name", how="left")
+            gantt_df["UK_Status"] = gantt_df["UK_Status"].fillna("Review Recording")
+            gantt_df = gantt_df.sort_values("Earliest_Detection")
+            cmap = status_color_map(gantt_df["UK_Status"].unique())
+            fig = px.timeline(
+                gantt_df, x_start="Earliest_Detection", x_end="Latest_Detection",
+                y="Species", color="UK_Status", color_discrete_map=cmap,
+            )
+            fig.update_yaxes(categoryorder="array", categoryarray=gantt_df["Species"].tolist())
+            fig.update_layout(yaxis_title="", xaxis_title="")
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+        else:
+            # Year-over-year mode
+            yoy = pr_df.groupby(["Com_Name", "year"])["timestamp"].agg(["min", "max"]).reset_index()
+            yoy.columns = ["Species", "year", "Start", "End"]
+            # Pad single-day
+            mask = yoy["Start"] == yoy["End"]
+            yoy.loc[mask, "End"] = yoy.loc[mask, "End"] + pd.Timedelta(days=1)
+            # Top N by total detections
+            top_species = pr_df["Com_Name"].value_counts().head(gantt_top_n).index.tolist()
+            yoy = yoy[yoy["Species"].isin(top_species)].copy()
+            yoy["year_str"] = yoy["year"].astype(str)
+            yoy["Label"] = yoy["Species"] + " (" + yoy["year_str"] + ")"
+            yoy = yoy.sort_values(["Species", "year"])
+            fig = px.timeline(
+                yoy, x_start="Start", x_end="End",
+                y="Label", color="year_str", color_discrete_sequence=NATURE_PALETTE,
+                labels={"year_str": "Year"},
+            )
+            fig.update_yaxes(categoryorder="array", categoryarray=yoy["Label"].tolist())
+            fig.update_layout(yaxis_title="", xaxis_title="")
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
 
