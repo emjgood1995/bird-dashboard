@@ -37,14 +37,30 @@ st.markdown("""
   .stApp {
     background: var(--bg);
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
+    color: var(--text) !important;
+    color-scheme: light !important;
   }
-  /* Apply Cabin to text-bearing elements — NOT * (which broke icon fonts) */
+  /* Apply Cabin + force dark text on all text-bearing elements —
+     NOT * (which broke icon fonts) */
   .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
   .stApp p, .stApp label, .stApp div, .stApp a, .stApp li,
   .stApp td, .stApp th,
+  .stApp span, .stApp caption,
   .stApp input, .stApp textarea, .stApp select,
   .stApp .stRadio label {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
+    color: var(--text) !important;
+  }
+  /* Muted text for captions and small helper text */
+  .stApp .stCaption, .stApp [data-testid="stCaptionContainer"] span,
+  .stApp small {
+    color: var(--muted) !important;
+  }
+  /* Ensure markdown text inherits correctly */
+  .stApp [data-testid="stMarkdownContainer"] p,
+  .stApp [data-testid="stMarkdownContainer"] li,
+  .stApp [data-testid="stMarkdownContainer"] span {
+    color: var(--text) !important;
   }
 
   .block-container {
