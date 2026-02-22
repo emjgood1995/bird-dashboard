@@ -2817,7 +2817,8 @@ elif page == "Nearby Sightings":
                                 "<b style='font-size:15px'>{species}</b><br/>"
                                 "<i style='color:#555'>{sci_name}</i><br/>"
                                 "<span style='color:#333'>📅 {observed_on}</span><br/>"
-                                "<span style='color:#333'>📍 {place_guess}</span>"
+                                "<span style='color:#333'>📍 {place_guess}</span><br/>"
+                                "<a href='{uri}' target='_blank' style='color:#1a73e8'>View on iNaturalist</a>"
                                 "</div>",
                         "style": {"backgroundColor": "white",
                                   "color": "#222", "fontSize": "14px",
