@@ -2599,7 +2599,9 @@ elif page == "Species Explorer":
 
 # ── Birthday Easter Egg ──────────────────────────────────────────────────────
 elif page == "\U0001f382":
-    st.balloons()
+    if "bday_balloons_shown" not in st.session_state:
+        st.session_state["bday_balloons_shown"] = True
+        st.balloons()
 
     st.markdown(
         '<div class="birthday-banner">&#x2727; H A P P Y &nbsp; B I R T H D A Y &#x2727;</div>',
