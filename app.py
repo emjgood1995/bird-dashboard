@@ -561,6 +561,31 @@ def fetch_weather(lat: float, lon: float, start_date: str, end_date: str):
         return None, None
 
 
+@st.cache_data(ttl=3600)
+def fetch_inat_nearby(lat, lon, radius_km=25, days_back=30, per_page=200):
+    """Fetch recent bird observations from iNaturalist near a location."""
+    d2 = datetime.date.today()
+    d1 = d2 - datetime.timedelta(days=days_back)
+    url = "https://api.inaturalist.org/v1/observations"
+    params = {
+        "lat": lat, "lng": lon, "radius": radius_km,
+        "iconic_taxa": "Aves",
+        "quality_grade": "research",
+        "d1": d1.isoformat(), "d2": d2.isoformat(),
+        "per_page": per_page,
+        "order_by": "observed_on",
+        "fields": "taxon,location,observed_on,photos,place_guess,uri",
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=30,
+                            headers={"User-Agent": "GardenBirdDashboard/1.0"})
+        if resp.status_code != 200:
+            return None
+        return resp.json()
+    except Exception:
+        return None
+
+
 _TZ_LONDON = ZoneInfo("Europe/London")
 _TZ_UTC = ZoneInfo("UTC")
 
@@ -585,6 +610,7 @@ _pages = [
     "Weather & Activity",
     "Data Quality",
     "Records",
+    "Nearby Sightings",
     "Species Explorer",
 ]
 if datetime.date.today().month == 2 and datetime.date.today().day == 23:
@@ -2707,6 +2733,83 @@ elif page == "Records":
             st.cache_data.clear()
             st.success(f"Classified {sci_name} as {diet}.")
             st.rerun()
+
+# ── Nearby Sightings ─────────────────────────────────────────────────────
+elif page == "Nearby Sightings":
+    st.subheader("Nearby Sightings")
+    st.caption("Recent bird observations from iNaturalist near your recording station.")
+
+    # Extract station location
+    if "Lat" not in df.columns or "Lon" not in df.columns or df["Lat"].dropna().empty:
+        st.warning("No location data available for your station.")
+    else:
+        stn_lat = float(df["Lat"].mode().iloc[0])
+        stn_lon = float(df["Lon"].mode().iloc[0])
+
+        col_r, col_d = st.columns(2)
+        with col_r:
+            radius_km = st.slider("Radius (km)", 5, 50, 25)
+        with col_d:
+            days_back = st.slider("Days back", 7, 90, 30)
+
+        data = fetch_inat_nearby(stn_lat, stn_lon, radius_km, days_back)
+
+        if data is None:
+            st.warning("Could not reach iNaturalist. Please try again later.")
+        else:
+            results = data.get("results", [])
+            rows = []
+            for obs in results:
+                taxon = obs.get("taxon") or {}
+                loc = obs.get("location", "")
+                if not loc or not taxon.get("name"):
+                    continue
+                olat, olng = loc.split(",")
+                rows.append({
+                    "species": taxon.get("preferred_common_name", taxon.get("name", "")),
+                    "sci_name": taxon.get("name", ""),
+                    "lat": float(olat),
+                    "lon": float(olng),
+                    "observed_on": obs.get("observed_on", ""),
+                    "place_guess": obs.get("place_guess", ""),
+                    "uri": obs.get("uri", ""),
+                })
+
+            if not rows:
+                st.info("No recent bird observations found nearby.")
+            else:
+                inat_df = pd.DataFrame(rows)
+
+                st.map(inat_df, latitude="lat", longitude="lon")
+
+                st.divider()
+
+                # Cross-reference with garden detections
+                garden_sci = set(df["Sci_Name"].dropna().unique())
+                inat_df["Seen in garden"] = inat_df["sci_name"].isin(garden_sci)
+
+                total_obs = len(inat_df)
+                unique_species = inat_df["sci_name"].nunique()
+                garden_overlap = inat_df.loc[inat_df["Seen in garden"], "sci_name"].nunique()
+                most_reported = inat_df["species"].value_counts().idxmax()
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Observations", total_obs)
+                m2.metric("Unique species", unique_species)
+                m3.metric("Also in your garden", garden_overlap)
+                m4.metric("Most reported", most_reported)
+
+                display_df = inat_df[["species", "sci_name", "observed_on", "place_guess", "Seen in garden", "uri"]].copy()
+                display_df.columns = ["Species", "Scientific name", "Date", "Location", "Seen in garden", "iNat link"]
+                display_df = display_df.sort_values("Date", ascending=False).reset_index(drop=True)
+
+                st.dataframe(
+                    display_df,
+                    column_config={
+                        "iNat link": st.column_config.LinkColumn("iNat link", display_text="View"),
+                    },
+                    use_container_width=True,
+                )
 
 # ── Species Explorer ──────────────────────────────────────────────────────
 elif page == "Species Explorer":
