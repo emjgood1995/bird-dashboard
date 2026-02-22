@@ -1497,13 +1497,13 @@ elif page == "NMDS":
     with nmds_c1:
         nmds_matrix = st.selectbox(
             "Feature matrix",
-            ["Species × Time Bucket", "Species × Month", "Species × Week", "Species × Season"],
+            ["Species × Peak Activity Time", "Species × Month", "Species × Season"],
             key="nmds_matrix",
         )
     with nmds_c2:
         nmds_colour = st.selectbox(
             "Colour by",
-            ["Diet", "UK Status", "Dominant Time Bucket", "Peak Season"],
+            ["Diet", "UK Status", "Peak Activity Time", "Peak Season"],
             key="nmds_colour",
         )
     with nmds_c3:
@@ -1528,15 +1528,12 @@ elif page == "NMDS":
         _season_map = {1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring", 5: "Spring",
                        6: "Summer", 7: "Summer", 8: "Summer", 9: "Autumn", 10: "Autumn",
                        11: "Autumn", 12: "Winter"}
-        if nmds_matrix == "Species × Time Bucket":
+        if nmds_matrix == "Species × Peak Activity Time":
             nmds_ts["_unit"] = nmds_ts["hour"].apply(assign_time_bucket)
             all_cols = list(TIME_BUCKET_COLORS.keys())
         elif nmds_matrix == "Species × Month":
             nmds_ts["_unit"] = nmds_ts["month"].map(MONTH_LABELS)
             all_cols = list(MONTH_LABELS.values())
-        elif nmds_matrix == "Species × Week":
-            nmds_ts["_unit"] = nmds_ts["week"]
-            all_cols = list(range(1, 54))
         else:  # Species × Season
             nmds_ts["_unit"] = nmds_ts["month"].map(_season_map)
             all_cols = list(SEASON_COLORS.keys())
@@ -1595,7 +1592,7 @@ elif page == "NMDS":
         elif nmds_colour == "UK Status":
             color_col = "UK_Status"
             color_map = STATUS_COLORS
-        elif nmds_colour == "Dominant Time Bucket":
+        elif nmds_colour == "Peak Activity Time":
             color_col = "Dominant_Time_Bucket"
             color_map = TIME_BUCKET_COLORS
         else:  # Peak Season
@@ -1634,9 +1631,9 @@ elif page == "NMDS":
         )
 
         # Pick hull colours and legend title based on the matrix type
-        if nmds_matrix == "Species × Time Bucket":
+        if nmds_matrix == "Species × Peak Activity Time":
             _hull_colors = TIME_BUCKET_COLORS
-            _hull_title = "Peak time bucket"
+            _hull_title = "Peak activity time"
         elif nmds_matrix == "Species × Season":
             _hull_colors = SEASON_COLORS
             _hull_title = "Peak season"
@@ -1649,9 +1646,6 @@ elif page == "NMDS":
             ]
             _hull_colors = {m: _month_greens[i] for i, m in enumerate(MONTH_LABELS.values())}
             _hull_title = "Peak month"
-        else:  # Species × Week
-            _hull_colors = {}
-            _hull_title = "Peak week"
 
         _hull_group_title = _hull_title
         for group_name, grp in nmds_result.groupby("_dominant_matrix_cat"):
