@@ -2747,11 +2747,17 @@ elif page == "Nearby Sightings":
         stn_lat = 52.2387
         stn_lon = 0.2477
 
-        col_r, col_d = st.columns(2)
+        col_r, col_d, col_reset = st.columns([1, 1, 0.5])
         with col_r:
             radius_km = st.slider("Radius (km)", 5, 50, 25)
         with col_d:
             days_back = st.slider("Days back", 7, 90, 30)
+        with col_reset:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Reset map"):
+                st.session_state["inat_map_key"] = st.session_state.get("inat_map_key", 0) + 1
+
+        map_key = st.session_state.get("inat_map_key", 0)
 
         data = fetch_inat_nearby(stn_lat, stn_lon, radius_km, days_back)
 
@@ -2830,7 +2836,7 @@ elif page == "Nearby Sightings":
                                   "borderRadius": "8px",
                                   "boxShadow": "0 2px 8px rgba(0,0,0,0.15)"},
                     },
-                ), on_select="rerun", selection_mode="multi-object", height=600)
+                ), on_select="rerun", selection_mode="multi-object", key=f"inat_map_{map_key}", height=600)
 
                 st.divider()
 
