@@ -2782,6 +2782,7 @@ elif page == "Nearby Sightings":
                 inat_df = pd.DataFrame(rows)
 
                 st.pydeck_chart(pdk.Deck(
+                    map_style="mapbox://styles/mapbox/outdoors-v12",
                     initial_view_state=pdk.ViewState(
                         latitude=stn_lat, longitude=stn_lon, zoom=10, pitch=0,
                     ),
@@ -2790,19 +2791,27 @@ elif page == "Nearby Sightings":
                             "ScatterplotLayer",
                             data=inat_df,
                             get_position=["lon", "lat"],
-                            get_radius=300,
-                            get_fill_color=[30, 130, 76, 180],
+                            get_radius=350,
+                            get_fill_color=[234, 85, 50, 210],
+                            get_line_color=[255, 255, 255, 220],
+                            line_width_min_pixels=1,
+                            stroked=True,
                             pickable=True,
                             auto_highlight=True,
+                            highlight_color=[255, 200, 0, 200],
                         ),
                     ],
                     tooltip={
-                        "html": "<b>{species}</b><br/>"
-                                "<i>{sci_name}</i><br/>"
-                                "Date: {observed_on}<br/>"
-                                "Location: {place_guess}",
-                        "style": {"backgroundColor": "#1e1e1e",
-                                  "color": "white", "fontSize": "13px"},
+                        "html": "<div style='padding:6px 10px'>"
+                                "<b style='font-size:15px'>{species}</b><br/>"
+                                "<i style='color:#555'>{sci_name}</i><br/>"
+                                "<span style='color:#333'>📅 {observed_on}</span><br/>"
+                                "<span style='color:#333'>📍 {place_guess}</span>"
+                                "</div>",
+                        "style": {"backgroundColor": "white",
+                                  "color": "#222", "fontSize": "14px",
+                                  "borderRadius": "8px",
+                                  "boxShadow": "0 2px 8px rgba(0,0,0,0.15)"},
                     },
                 ), height=600)
 
