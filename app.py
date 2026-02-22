@@ -417,37 +417,49 @@ def fetch_wiki_summary(title: str):
 
 
 @st.cache_data(ttl=86400)
-def fetch_xeno_canto(sci_name: str):
-    """Fetch the top bird song recording from xeno-canto for a species."""
+def fetch_bird_audio(sci_name: str):
+    """Fetch a bird song/call recording from Wikimedia Commons."""
+    api = "https://commons.wikimedia.org/w/api.php"
     try:
-        resp = requests.get(
-            "https://xeno-canto.org/api/2/recordings",
-            params={"query": f'{sci_name} type:song q:A'},
-            timeout=10,
-        )
+        # Search for audio files matching the scientific name
+        resp = requests.get(api, params={
+            "action": "query", "list": "search", "format": "json",
+            "srsearch": f"{sci_name} song filetype:audio",
+            "srnamespace": "6", "srlimit": "1",
+        }, timeout=10)
         if resp.status_code != 200:
             return None
-        data = resp.json()
-        recs = data.get("recordings", [])
-        if not recs:
-            resp = requests.get(
-                "https://xeno-canto.org/api/2/recordings",
-                params={"query": f'{sci_name} q:A'},
-                timeout=10,
-            )
+        results = resp.json().get("query", {}).get("search", [])
+        if not results:
+            # Fallback: search without "song"
+            resp = requests.get(api, params={
+                "action": "query", "list": "search", "format": "json",
+                "srsearch": f"{sci_name} filetype:audio",
+                "srnamespace": "6", "srlimit": "1",
+            }, timeout=10)
             if resp.status_code != 200:
                 return None
-            recs = resp.json().get("recordings", [])
-        if not recs:
+            results = resp.json().get("query", {}).get("search", [])
+        if not results:
             return None
-        rec = recs[0]
-        return {
-            "file": rec.get("file", ""),
-            "type": rec.get("type", ""),
-            "recordist": rec.get("rec", ""),
-            "country": rec.get("cnt", ""),
-            "url": rec.get("url", ""),
-        }
+        title = results[0]["title"]
+        # Get the direct file URL
+        resp = requests.get(api, params={
+            "action": "query", "titles": title, "format": "json",
+            "prop": "imageinfo", "iiprop": "url|mime",
+        }, timeout=10)
+        if resp.status_code != 200:
+            return None
+        pages = resp.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            info = page.get("imageinfo", [{}])[0]
+            file_url = info.get("url", "")
+            desc_url = info.get("descriptionurl", "")
+            mime = info.get("mime", "")
+            if file_url:
+                fmt = "audio/ogg" if "ogg" in mime else "audio/mpeg"
+                return {"file": file_url, "format": fmt, "page": desc_url, "title": title}
+        return None
     except Exception:
         return None
 
@@ -2590,14 +2602,13 @@ elif page == "Species Explorer":
             )
             st.warning("Could not fetch information from Wikipedia.")
 
-        # Bird song from xeno-canto
-        xc = fetch_xeno_canto(se_sci)
-        if xc and xc["file"]:
-            st.markdown(f"**Listen** — {xc['type'] or 'recording'}")
-            st.audio(xc["file"], format="audio/mpeg")
+        # Bird song from Wikimedia Commons
+        bird_audio = fetch_bird_audio(se_sci)
+        if bird_audio and bird_audio["file"]:
+            st.markdown("**Listen**")
+            st.audio(bird_audio["file"], format=bird_audio["format"])
             st.caption(
-                f"Recording by {xc['recordist']}, {xc['country']} · "
-                f"[xeno-canto]({xc['url']})"
+                f"Source: [Wikimedia Commons]({bird_audio['page']})"
             )
 
         # Detection summary for selected species
