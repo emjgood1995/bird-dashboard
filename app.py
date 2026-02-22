@@ -2633,6 +2633,7 @@ elif page == "\U0001f382":
 
         fig_sp = px.bar(
             bday_sp, x="Count", y="Species", orientation="h",
+            title="Species Detected on Feb 23",
             color="Count",
             color_continuous_scale=[[0, NATURE_PALETTE[6]], [1, NATURE_PALETTE[0]]],
             labels={"Count": "Detections", "Species": ""},
@@ -2643,17 +2644,50 @@ elif page == "\U0001f382":
 
         st.divider()
 
-        # Hourly activity chart
+        # Hourly activity chart (same style as Community page)
         st.subheader("Hourly Activity on Feb 23")
-        hourly = bday.groupby(bday["timestamp"].dt.hour).size().reset_index(name="Count")
-        hourly.columns = ["Hour", "Count"]
+        bday_show_species = st.checkbox("Show by species", value=False, key="bday_by_species")
 
-        fig_hr = px.bar(
-            hourly, x="Hour", y="Count",
-            labels={"Hour": "Hour of Day", "Count": "Detections"},
-            color_discrete_sequence=[PRIMARY],
-        )
-        fig_hr.update_layout(bargap=0.15)
+        if bday_show_species:
+            bday_top = bday["Com_Name"].value_counts().head(20).index.tolist()
+            bday_tod = bday[bday["Com_Name"].isin(bday_top)].copy()
+            bday_sp_hour = bday_tod.groupby(["hour", "Com_Name"]).size().reset_index(name="Count")
+            bday_sp_cmap = {
+                sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
+                for i, sp in enumerate(bday_top)
+            }
+            fig_hr = px.area(
+                bday_sp_hour, x="hour", y="Count",
+                color="Com_Name",
+                title="Activity by Hour · Feb 23 · All Years",
+                labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
+                category_orders={"Com_Name": bday_top},
+                color_discrete_map=bday_sp_cmap,
+            )
+            fig_hr.update_layout(xaxis=dict(dtick=1))
+            fig_hr.update_traces(marker_line_width=0)
+            bday_hourly_total = bday.groupby("hour").size().reset_index(name="Count")
+            fig_hr.add_scatter(
+                x=bday_hourly_total["hour"], y=bday_hourly_total["Count"],
+                mode="lines+markers",
+                line=dict(color="#1a2416", width=2.5, dash="dot"),
+                marker=dict(size=5, color="#1a2416"),
+                name="Total", showlegend=True,
+            )
+        else:
+            bday_hourly = bday.groupby("hour").size().reset_index(name="Count")
+            fig_hr = px.area(
+                bday_hourly, x="hour", y="Count",
+                title="Activity by Hour · Feb 23 · All Years",
+                labels={"hour": "Hour of day", "Count": "Detections"},
+            )
+            fig_hr.update_traces(
+                line=dict(color=PRIMARY, width=2),
+                fillcolor="rgba(61,107,68,0.14)",
+                marker=dict(size=5, color=PRIMARY),
+                mode="lines+markers",
+            )
+            fig_hr.update_layout(xaxis=dict(dtick=1))
         st.plotly_chart(style_fig(fig_hr), use_container_width=True)
 
         st.divider()
