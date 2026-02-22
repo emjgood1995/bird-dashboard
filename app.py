@@ -2609,13 +2609,25 @@ elif page == "\U0001f382":
     )
 
     # Filter to Feb 23 across all years
-    bday = filtered[
+    bday_all = filtered[
         (filtered["timestamp"].dt.month == 2) & (filtered["timestamp"].dt.day == 23)
     ]
 
-    if bday.empty:
+    if bday_all.empty:
         st.info("No birds recorded on your birthday yet — check back tonight!")
     else:
+        # Year selector
+        bday_years = sorted(bday_all["timestamp"].dt.year.unique())
+        bday_year_opts = ["All years"] + [str(y) for y in bday_years]
+        bday_year_sel = st.selectbox("Year", bday_year_opts, index=0, key="bday_year")
+
+        if bday_year_sel == "All years":
+            bday = bday_all.copy()
+            bday_year_label = "All Years"
+        else:
+            bday = bday_all[bday_all["timestamp"].dt.year == int(bday_year_sel)].copy()
+            bday_year_label = bday_year_sel
+
         # KPI metrics
         k1, k2, k3 = st.columns(3)
         k1.metric("Total Detections", f"{len(bday):,}")
@@ -2635,7 +2647,7 @@ elif page == "\U0001f382":
 
         fig_sp = px.bar(
             bday_sp, x="Count", y="Species", orientation="h",
-            title="Species Detected on Feb 23",
+            title=f"Species Detected on Feb 23 · {bday_year_label}",
             color="Count",
             color_continuous_scale=[[0, NATURE_PALETTE[6]], [1, NATURE_PALETTE[0]]],
             labels={"Count": "Detections", "Species": ""},
@@ -2661,7 +2673,7 @@ elif page == "\U0001f382":
             fig_hr = px.area(
                 bday_sp_hour, x="hour", y="Count",
                 color="Com_Name",
-                title="Activity by Hour · Feb 23 · All Years",
+                title=f"Activity by Hour · Feb 23 · {bday_year_label}",
                 labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
                 category_orders={"Com_Name": bday_top},
                 color_discrete_map=bday_sp_cmap,
@@ -2680,7 +2692,7 @@ elif page == "\U0001f382":
             bday_hourly = bday.groupby("hour").size().reset_index(name="Count")
             fig_hr = px.area(
                 bday_hourly, x="hour", y="Count",
-                title="Activity by Hour · Feb 23 · All Years",
+                title=f"Activity by Hour · Feb 23 · {bday_year_label}",
                 labels={"hour": "Hour of day", "Count": "Detections"},
             )
             fig_hr.update_traces(
