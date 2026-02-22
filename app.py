@@ -319,6 +319,12 @@ def status_color_map(statuses):
     return cmap
 
 
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convert '#rrggbb' to 'r, g, b' string for use in rgba()."""
+    h = hex_color.lstrip("#")
+    return f"{int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}"
+
+
 def style_fig(fig):
     fig.update_layout(
         template="plotly_white",
@@ -1614,6 +1620,30 @@ elif page == "NMDS":
             title="NMDS — Species Similarity Ordination",
         )
         fig_nmds.update_traces(marker=dict(size=10, line=dict(width=1, color="rgba(26,36,22,0.3)")))
+
+        # Draw convex hull shading around each colour group
+        from scipy.spatial import ConvexHull
+        for group_name, grp in nmds_result.groupby(color_col):
+            if len(grp) < 3:
+                continue
+            pts = grp[["NMDS1", "NMDS2"]].values
+            try:
+                hull = ConvexHull(pts)
+            except Exception:
+                continue
+            hull_idx = list(hull.vertices) + [hull.vertices[0]]  # close the polygon
+            base_color = color_map.get(group_name, "#8c9c8c")
+            fig_nmds.add_trace(go.Scatter(
+                x=pts[hull_idx, 0], y=pts[hull_idx, 1],
+                mode="lines",
+                fill="toself",
+                fillcolor=f"rgba({_hex_to_rgb(base_color)}, 0.10)",
+                line=dict(color=base_color, width=1.5, dash="dot"),
+                name=group_name,
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
         st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
 
         # Metrics row
