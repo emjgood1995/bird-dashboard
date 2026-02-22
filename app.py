@@ -2782,7 +2782,7 @@ elif page == "Nearby Sightings":
                 inat_df = pd.DataFrame(rows)
 
                 st.pydeck_chart(pdk.Deck(
-                    map_style="mapbox://styles/mapbox/outdoors-v12",
+                    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
                     initial_view_state=pdk.ViewState(
                         latitude=stn_lat, longitude=stn_lon, zoom=10, pitch=0,
                     ),
