@@ -2781,7 +2781,11 @@ elif page == "Nearby Sightings":
             else:
                 inat_df = pd.DataFrame(rows)
 
-                st.pydeck_chart(pdk.Deck(
+                # Cross-reference with garden detections
+                garden_sci = set(df["Sci_Name"].dropna().unique())
+                inat_df["Seen in garden"] = inat_df["sci_name"].isin(garden_sci)
+
+                event = st.pydeck_chart(pdk.Deck(
                     map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
                     initial_view_state=pdk.ViewState(
                         latitude=stn_lat, longitude=stn_lon, zoom=10, pitch=0,
@@ -2789,6 +2793,7 @@ elif page == "Nearby Sightings":
                     layers=[
                         pdk.Layer(
                             "ScatterplotLayer",
+                            id="observations",
                             data=inat_df,
                             get_position=["lon", "lat"],
                             get_radius=350,
@@ -2802,6 +2807,7 @@ elif page == "Nearby Sightings":
                         ),
                         pdk.Layer(
                             "ScatterplotLayer",
+                            id="station",
                             data=pd.DataFrame([{"lat": stn_lat, "lon": stn_lon, "species": "Your station"}]),
                             get_position=["lon", "lat"],
                             get_radius=500,
@@ -2817,26 +2823,33 @@ elif page == "Nearby Sightings":
                                 "<b style='font-size:15px'>{species}</b><br/>"
                                 "<i style='color:#555'>{sci_name}</i><br/>"
                                 "<span style='color:#333'>📅 {observed_on}</span><br/>"
-                                "<span style='color:#333'>📍 {place_guess}</span><br/>"
-                                "<a href='{uri}' target='_blank' style='color:#1a73e8'>View on iNaturalist</a>"
+                                "<span style='color:#333'>📍 {place_guess}</span>"
                                 "</div>",
                         "style": {"backgroundColor": "white",
                                   "color": "#222", "fontSize": "14px",
                                   "borderRadius": "8px",
                                   "boxShadow": "0 2px 8px rgba(0,0,0,0.15)"},
                     },
-                ), height=600)
+                ), on_select="rerun", selection_mode="multi-object", height=600)
 
                 st.divider()
 
-                # Cross-reference with garden detections
-                garden_sci = set(df["Sci_Name"].dropna().unique())
-                inat_df["Seen in garden"] = inat_df["sci_name"].isin(garden_sci)
+                # Filter table to selection if points clicked on map
+                selected_indices = []
+                if event and event.selection and event.selection.get("indices"):
+                    # indices is dict keyed by layer id
+                    selected_indices = event.selection["indices"].get("observations", [])
 
-                total_obs = len(inat_df)
-                unique_species = inat_df["sci_name"].nunique()
-                garden_overlap = inat_df.loc[inat_df["Seen in garden"], "sci_name"].nunique()
-                most_reported = inat_df["species"].value_counts().idxmax()
+                if selected_indices:
+                    table_df = inat_df.iloc[selected_indices]
+                    st.caption(f"Showing {len(selected_indices)} selected observation(s). Click empty area on map to reset.")
+                else:
+                    table_df = inat_df
+
+                total_obs = len(table_df)
+                unique_species = table_df["sci_name"].nunique()
+                garden_overlap = table_df.loc[table_df["Seen in garden"], "sci_name"].nunique()
+                most_reported = table_df["species"].value_counts().idxmax()
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Observations", total_obs)
@@ -2844,7 +2857,7 @@ elif page == "Nearby Sightings":
                 m3.metric("Also in your garden", garden_overlap)
                 m4.metric("Most reported", most_reported)
 
-                display_df = inat_df[["species", "sci_name", "observed_on", "place_guess", "Seen in garden", "uri"]].copy()
+                display_df = table_df[["species", "sci_name", "observed_on", "place_guess", "Seen in garden", "uri"]].copy()
                 display_df.columns = ["Species", "Scientific name", "Date", "Location", "Seen in garden", "iNat link"]
                 display_df = display_df.sort_values("Date", ascending=False).reset_index(drop=True)
 
