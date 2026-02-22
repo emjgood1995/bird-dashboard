@@ -41,21 +41,24 @@ st.markdown("""
     color-scheme: light !important;
   }
   /* Apply Cabin + force dark text on all text-bearing elements —
-     NOT * (which broke icon fonts) */
+     NOT span (which breaks icon fonts like Material Symbols) */
   .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
-  .stApp p, .stApp label, .stApp div, .stApp a, .stApp li,
+  .stApp p, .stApp label, .stApp a, .stApp li,
   .stApp td, .stApp th,
-  .stApp span, .stApp caption,
+  .stApp caption,
   .stApp input, .stApp textarea, .stApp select,
   .stApp .stRadio label {
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
     color: var(--text) !important;
   }
-  /* Keep sidebar toggle icons white (undo the broad colour rule above) */
-  [data-testid="stSidebarCollapseButton"] span,
-  [data-testid="stSidebarCollapseButton"] svg,
-  [data-testid="stSidebarNavExpandButton"] span,
-  [data-testid="stSidebarNavExpandButton"] svg {
+  /* Force dark text on spans and divs but preserve their font-family
+     (so icon fonts like Material Symbols keep rendering as icons) */
+  .stApp span, .stApp div {
+    color: var(--text) !important;
+  }
+  /* Restore white for sidebar toggle button icons */
+  [data-testid="stSidebarCollapseButton"] *,
+  [data-testid="stSidebarNavExpandButton"] * {
     color: #ffffff !important;
     fill: #ffffff !important;
   }
