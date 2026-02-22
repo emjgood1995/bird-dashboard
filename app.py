@@ -1621,16 +1621,40 @@ elif page == "NMDS":
         )
         fig_nmds.update_traces(marker=dict(size=10, line=dict(width=1, color="rgba(26,36,22,0.3)")))
 
-        # Draw convex hull shading around each colour group
+        # Draw convex hulls grouped by the dominant feature-matrix category
+        # (i.e. which column of the matrix each species peaks in)
         from scipy.spatial import ConvexHull
-        _hull_label = {
-            "Diet": "Diet group",
-            "UK_Status": "UK Status group",
-            "Dominant_Time_Bucket": "Time Bucket group",
-            "Peak_Season": "Season group",
-        }
-        _hull_group_title = _hull_label.get(color_col, "Group")
-        for group_name, grp in nmds_result.groupby(color_col):
+
+        # Determine each species' dominant matrix column
+        _dominant = nmds_pivot.idxmax(axis=1)  # Series: Com_Name -> column label
+        _dominant.name = "_dominant_matrix_cat"
+        nmds_result = nmds_result.merge(
+            _dominant.reset_index().rename(columns={"Com_Name": "Species"}),
+            on="Species", how="left",
+        )
+
+        # Pick hull colours and legend title based on the matrix type
+        if nmds_matrix == "Species × Time Bucket":
+            _hull_colors = TIME_BUCKET_COLORS
+            _hull_title = "Peak time bucket"
+        elif nmds_matrix == "Species × Season":
+            _hull_colors = SEASON_COLORS
+            _hull_title = "Peak season"
+        elif nmds_matrix == "Species × Month":
+            # Generate month colours from the heatmap scale
+            _month_greens = [
+                "#c8dfa0", "#aed48a", "#94c974", "#7aaa6a", "#6b9e5e",
+                "#5c8c5c", "#4d7a4d", "#3e683e", "#2d5233", "#3e683e",
+                "#5c8c5c", "#94c974",
+            ]
+            _hull_colors = {m: _month_greens[i] for i, m in enumerate(MONTH_LABELS.values())}
+            _hull_title = "Peak month"
+        else:  # Species × Week
+            _hull_colors = {}
+            _hull_title = "Peak week"
+
+        _hull_group_title = _hull_title
+        for group_name, grp in nmds_result.groupby("_dominant_matrix_cat"):
             if len(grp) < 3:
                 continue
             pts = grp[["NMDS1", "NMDS2"]].values
@@ -1639,20 +1663,19 @@ elif page == "NMDS":
             except Exception:
                 continue
             hull_idx = list(hull.vertices) + [hull.vertices[0]]
-            base_color = color_map.get(group_name, "#8c9c8c")
+            base_color = _hull_colors.get(group_name, "#8c9c8c")
             fig_nmds.add_trace(go.Scatter(
                 x=pts[hull_idx, 0], y=pts[hull_idx, 1],
                 mode="lines",
                 fill="toself",
                 fillcolor=f"rgba({_hex_to_rgb(base_color)}, 0.10)",
                 line=dict(color=base_color, width=1.5, dash="dot"),
-                name=f"{group_name} (hull)",
+                name=f"{group_name}",
                 legendgroup=f"hull_{group_name}",
                 legendgrouptitle_text=_hull_group_title,
                 showlegend=True,
                 hoverinfo="skip",
             ))
-            # Only show the group title once
             _hull_group_title = None
 
         st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
