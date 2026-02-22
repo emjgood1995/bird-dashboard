@@ -416,6 +416,42 @@ def fetch_wiki_summary(title: str):
         return None
 
 
+@st.cache_data(ttl=86400)
+def fetch_xeno_canto(sci_name: str):
+    """Fetch the top bird song recording from xeno-canto for a species."""
+    try:
+        resp = requests.get(
+            "https://xeno-canto.org/api/2/recordings",
+            params={"query": f'{sci_name} type:song q:A'},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        recs = data.get("recordings", [])
+        if not recs:
+            resp = requests.get(
+                "https://xeno-canto.org/api/2/recordings",
+                params={"query": f'{sci_name} q:A'},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+            recs = resp.json().get("recordings", [])
+        if not recs:
+            return None
+        rec = recs[0]
+        return {
+            "file": rec.get("file", ""),
+            "type": rec.get("type", ""),
+            "recordist": rec.get("rec", ""),
+            "country": rec.get("cnt", ""),
+            "url": rec.get("url", ""),
+        }
+    except Exception:
+        return None
+
+
 # ---- Load data ----
 @st.cache_data
 def load_data():
@@ -2394,6 +2430,54 @@ elif page == "Records":
             hide_index=True,
         )
 
+    # ── Phenology Calendar ──
+    st.divider()
+    st.subheader("Phenology Calendar")
+    st.caption("When each species is active throughout the year.")
+
+    pheno_col1, pheno_col2 = st.columns(2)
+    with pheno_col1:
+        pheno_top_n = st.slider("Top N species", 5, 40, 25, key="pheno_top_n")
+    with pheno_col2:
+        pheno_metric = st.radio("Metric", ["Detections", "Days active"], horizontal=True, key="pheno_metric")
+
+    if len(filtered) > 0:
+        if pheno_metric == "Detections":
+            pheno_agg = filtered.groupby(["Com_Name", "month"]).size().reset_index(name="value")
+        else:
+            pheno_agg = filtered.groupby(["Com_Name", "month"])["Date"].nunique().reset_index(name="value")
+
+        pheno_totals = pheno_agg.groupby("Com_Name")["value"].sum().nlargest(pheno_top_n)
+        pheno_species = pheno_totals.index.tolist()
+        pheno_agg = pheno_agg[pheno_agg["Com_Name"].isin(pheno_species)]
+
+        pheno_pivot = pheno_agg.pivot(index="Com_Name", columns="month", values="value").fillna(0)
+        pheno_pivot = pheno_pivot.reindex(columns=range(1, 13), fill_value=0)
+        pheno_pivot = pheno_pivot.loc[pheno_species]  # sort by total descending
+
+        fig = px.imshow(
+            pheno_pivot.values,
+            x=list(MONTH_LABELS.values()),
+            y=pheno_pivot.index.tolist(),
+            title=f"Phenology Calendar · {pheno_metric}",
+            color_continuous_scale=HEATMAP_SCALE,
+            labels={"x": "Month", "y": "Species", "color": pheno_metric},
+            aspect="auto",
+        )
+        fig.update_layout(
+            xaxis=dict(dtick=1),
+            yaxis=dict(dtick=1),
+            coloraxis_colorbar=dict(
+                title=pheno_metric,
+                tickfont=dict(size=11, color="#4a5c44"),
+                title_font=dict(size=12, color="#4a5c44"),
+                thickness=14,
+            ),
+        )
+        st.plotly_chart(style_fig(fig), use_container_width=True)
+    else:
+        st.info("No data available for the current filters.")
+
     # ── Classify Unclassified Species ──
     st.divider()
     st.subheader("Classify Unclassified Species")
@@ -2505,6 +2589,16 @@ elif page == "Species Explorer":
                 unsafe_allow_html=True,
             )
             st.warning("Could not fetch information from Wikipedia.")
+
+        # Bird song from xeno-canto
+        xc = fetch_xeno_canto(se_sci)
+        if xc and xc["file"]:
+            st.markdown(f"**Listen** — {xc['type'] or 'recording'}")
+            st.audio(xc["file"], format="audio/mpeg")
+            st.caption(
+                f"Recording by {xc['recordist']}, {xc['country']} · "
+                f"[xeno-canto]({xc['url']})"
+            )
 
         # Detection summary for selected species
         st.divider()
