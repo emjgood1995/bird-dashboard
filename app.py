@@ -1623,6 +1623,13 @@ elif page == "NMDS":
 
         # Draw convex hull shading around each colour group
         from scipy.spatial import ConvexHull
+        _hull_label = {
+            "Diet": "Diet group",
+            "UK_Status": "UK Status group",
+            "Dominant_Time_Bucket": "Time Bucket group",
+            "Peak_Season": "Season group",
+        }
+        _hull_group_title = _hull_label.get(color_col, "Group")
         for group_name, grp in nmds_result.groupby(color_col):
             if len(grp) < 3:
                 continue
@@ -1631,7 +1638,7 @@ elif page == "NMDS":
                 hull = ConvexHull(pts)
             except Exception:
                 continue
-            hull_idx = list(hull.vertices) + [hull.vertices[0]]  # close the polygon
+            hull_idx = list(hull.vertices) + [hull.vertices[0]]
             base_color = color_map.get(group_name, "#8c9c8c")
             fig_nmds.add_trace(go.Scatter(
                 x=pts[hull_idx, 0], y=pts[hull_idx, 1],
@@ -1639,10 +1646,14 @@ elif page == "NMDS":
                 fill="toself",
                 fillcolor=f"rgba({_hex_to_rgb(base_color)}, 0.10)",
                 line=dict(color=base_color, width=1.5, dash="dot"),
-                name=group_name,
-                showlegend=False,
+                name=f"{group_name} (hull)",
+                legendgroup=f"hull_{group_name}",
+                legendgrouptitle_text=_hull_group_title,
+                showlegend=True,
                 hoverinfo="skip",
             ))
+            # Only show the group title once
+            _hull_group_title = None
 
         st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
 
