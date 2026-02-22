@@ -420,13 +420,14 @@ def fetch_wiki_summary(title: str):
 def fetch_bird_audio(sci_name: str):
     """Fetch a bird song/call recording from Wikimedia Commons."""
     api = "https://commons.wikimedia.org/w/api.php"
+    headers = {"User-Agent": "GardenBirdDashboard/1.0 (https://github.com/emjgood1995/bird-dashboard)"}
     try:
         # Search for audio files matching the scientific name
         resp = requests.get(api, params={
             "action": "query", "list": "search", "format": "json",
             "srsearch": f"{sci_name} song filetype:audio",
             "srnamespace": "6", "srlimit": "1",
-        }, timeout=10)
+        }, headers=headers, timeout=10)
         if resp.status_code != 200:
             return None
         results = resp.json().get("query", {}).get("search", [])
@@ -436,7 +437,7 @@ def fetch_bird_audio(sci_name: str):
                 "action": "query", "list": "search", "format": "json",
                 "srsearch": f"{sci_name} filetype:audio",
                 "srnamespace": "6", "srlimit": "1",
-            }, timeout=10)
+            }, headers=headers, timeout=10)
             if resp.status_code != 200:
                 return None
             results = resp.json().get("query", {}).get("search", [])
@@ -447,7 +448,7 @@ def fetch_bird_audio(sci_name: str):
         resp = requests.get(api, params={
             "action": "query", "titles": title, "format": "json",
             "prop": "imageinfo", "iiprop": "url|mime",
-        }, timeout=10)
+        }, headers=headers, timeout=10)
         if resp.status_code != 200:
             return None
         pages = resp.json().get("query", {}).get("pages", {})
