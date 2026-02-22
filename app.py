@@ -2180,7 +2180,7 @@ elif page == "Data Quality":
         )
         if cd_box:
             fig.update_traces(box_visible=True)
-        fig.update_layout(showlegend=False)
+        fig.update_layout(showlegend=False, height=max(400, len(species_order) * 28))
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
     st.divider()
@@ -2562,6 +2562,7 @@ elif page == "Records":
             hover_data={"Confidence": ":.2f", "date": True},
         )
         fig.update_traces(marker=dict(opacity=0.8, line=dict(width=0.5, color="#1a2416")))
+        fig.update_layout(height=max(400, len(species_order) * 22))
         st.plotly_chart(style_fig(fig), use_container_width=True)
 
         # Detail table
@@ -2661,6 +2662,7 @@ elif page == "Records":
         fig.update_layout(
             xaxis=dict(dtick=1),
             yaxis=dict(dtick=1),
+            height=max(400, len(pheno_pivot) * 22),
             coloraxis_colorbar=dict(
                 title=pheno_metric,
                 tickfont=dict(size=11, color="#4a5c44"),
