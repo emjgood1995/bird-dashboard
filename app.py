@@ -505,7 +505,7 @@ _pages = [
     "Records",
     "Species Explorer",
 ]
-if True:  # datetime.date.today().month == 2 and datetime.date.today().day == 23:
+if datetime.date.today().month == 2 and datetime.date.today().day == 23:
     _pages.append("\U0001f382")
 
 page = st.sidebar.radio(
