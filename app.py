@@ -2454,6 +2454,9 @@ elif page == "Records":
                 mask = df[y] == trace.name if y == color else df[color].astype(str) == trace.name
                 if mask.any():
                     trace.customdata = df.loc[mask, ["_start_str", "_end_str"]].values
+            # Scale height to number of rows so bars don't get clipped
+            n_rows = df[y].nunique()
+            fig.update_layout(height=max(400, n_rows * 22))
             return fig
 
         if gantt_view == "All years combined":
