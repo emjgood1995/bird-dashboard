@@ -51,6 +51,14 @@ st.markdown("""
     font-family: 'Cabin', ui-sans-serif, system-ui, sans-serif !important;
     color: var(--text) !important;
   }
+  /* Keep sidebar toggle icons white (undo the broad colour rule above) */
+  [data-testid="stSidebarCollapseButton"] span,
+  [data-testid="stSidebarCollapseButton"] svg,
+  [data-testid="stSidebarNavExpandButton"] span,
+  [data-testid="stSidebarNavExpandButton"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+  }
   /* Muted text for captions and small helper text */
   .stApp .stCaption, .stApp [data-testid="stCaptionContainer"] span,
   .stApp small {
