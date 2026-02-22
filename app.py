@@ -2428,10 +2428,33 @@ elif page == "Records":
         st.caption("Presence window for each species — first to last detection.")
 
         gantt_view = st.radio(
-            "View", ["All years combined", "Year-over-year"],
+            "View", ["All years combined", "Average across years", "Year-over-year"],
             horizontal=True, key="gantt_view",
         )
         gantt_top_n = st.slider("Top N species", 5, 50, 30, key="gantt_top_n")
+
+        def _gantt_chart(df, x_start, x_end, y, color, color_map=None, color_seq=None, labels=None):
+            """Build a Gantt chart with clean hover text (avoids px.timeline 'undefined' bug)."""
+            df = df.copy()
+            df["_start_str"] = df[x_start].dt.strftime("%Y-%m-%d")
+            df["_end_str"] = df[x_end].dt.strftime("%Y-%m-%d")
+            fig = px.timeline(
+                df, x_start=x_start, x_end=x_end, y=y, color=color,
+                color_discrete_map=color_map, color_discrete_sequence=color_seq,
+                labels=labels or {},
+            )
+            # Replace default hover with clean template
+            for trace in fig.data:
+                trace.hovertemplate = (
+                    "<b>%{y}</b><br>"
+                    "%{customdata[0]} → %{customdata[1]}"
+                    "<extra>%{fullData.name}</extra>"
+                )
+                # Build customdata from the matching rows
+                mask = df[y] == trace.name if y == color else df[color].astype(str) == trace.name
+                if mask.any():
+                    trace.customdata = df.loc[mask, ["_start_str", "_end_str"]].values
+            return fig
 
         if gantt_view == "All years combined":
             gantt_df = det_range.nlargest(gantt_top_n, "Total Detections").copy()
@@ -2444,13 +2467,46 @@ elif page == "Records":
             gantt_df["UK_Status"] = gantt_df["UK_Status"].fillna("Review Recording")
             gantt_df = gantt_df.sort_values("Earliest_Detection")
             cmap = status_color_map(gantt_df["UK_Status"].unique())
-            fig = px.timeline(
-                gantt_df, x_start="Earliest_Detection", x_end="Latest_Detection",
-                y="Species", color="UK_Status", color_discrete_map=cmap,
-            )
+            fig = _gantt_chart(gantt_df, "Earliest_Detection", "Latest_Detection", "Species", "UK_Status", color_map=cmap)
             fig.update_yaxes(categoryorder="array", categoryarray=gantt_df["Species"].tolist())
             fig.update_layout(yaxis_title="", xaxis_title="")
             st.plotly_chart(style_fig(fig), use_container_width=True)
+
+        elif gantt_view == "Average across years":
+            # Average arrival/departure day-of-year across years, projected onto a reference year
+            per_yr = pr_df.groupby(["Com_Name", "year"])["timestamp"].agg(["min", "max"]).reset_index()
+            per_yr.columns = ["Species", "year", "first", "last"]
+            per_yr["first_doy"] = per_yr["first"].dt.dayofyear
+            per_yr["last_doy"] = per_yr["last"].dt.dayofyear
+            avg_doy = per_yr.groupby("Species")[["first_doy", "last_doy"]].mean().reset_index()
+            avg_doy["n_years"] = per_yr.groupby("Species")["year"].nunique().values
+            # Top N by total detections
+            top_species = pr_df["Com_Name"].value_counts().head(gantt_top_n).index.tolist()
+            avg_doy = avg_doy[avg_doy["Species"].isin(top_species)].copy()
+            # Project onto reference year 2000 (leap year, so all 366 days valid)
+            avg_doy["Start"] = pd.to_datetime("2000-01-01") + pd.to_timedelta(avg_doy["first_doy"].round() - 1, unit="D")
+            avg_doy["End"] = pd.to_datetime("2000-01-01") + pd.to_timedelta(avg_doy["last_doy"].round() - 1, unit="D")
+            # Pad single-day
+            mask = avg_doy["Start"] == avg_doy["End"]
+            avg_doy.loc[mask, "End"] = avg_doy.loc[mask, "End"] + pd.Timedelta(days=1)
+            # Merge UK_Status
+            sp_status = pr_df.drop_duplicates("Com_Name")[["Com_Name", "UK_Status"]]
+            avg_doy = avg_doy.merge(sp_status, left_on="Species", right_on="Com_Name", how="left")
+            avg_doy["UK_Status"] = avg_doy["UK_Status"].fillna("Review Recording")
+            avg_doy = avg_doy.sort_values("first_doy")
+            cmap = status_color_map(avg_doy["UK_Status"].unique())
+            fig = _gantt_chart(avg_doy, "Start", "End", "Species", "UK_Status", color_map=cmap)
+            fig.update_yaxes(categoryorder="array", categoryarray=avg_doy["Species"].tolist())
+            # Format x-axis as month names (reference year)
+            fig.update_layout(
+                yaxis_title="", xaxis_title="",
+                xaxis=dict(
+                    tickformat="%b",
+                    dtick="M1",
+                ),
+            )
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
         else:
             # Year-over-year mode
             yoy = pr_df.groupby(["Com_Name", "year"])["timestamp"].agg(["min", "max"]).reset_index()
@@ -2464,11 +2520,7 @@ elif page == "Records":
             yoy["year_str"] = yoy["year"].astype(str)
             yoy["Label"] = yoy["Species"] + " (" + yoy["year_str"] + ")"
             yoy = yoy.sort_values(["Species", "year"])
-            fig = px.timeline(
-                yoy, x_start="Start", x_end="End",
-                y="Label", color="year_str", color_discrete_sequence=NATURE_PALETTE,
-                labels={"year_str": "Year"},
-            )
+            fig = _gantt_chart(yoy, "Start", "End", "Label", "year_str", color_seq=NATURE_PALETTE, labels={"year_str": "Year"})
             fig.update_yaxes(categoryorder="array", categoryarray=yoy["Label"].tolist())
             fig.update_layout(yaxis_title="", xaxis_title="")
             st.plotly_chart(style_fig(fig), use_container_width=True)
