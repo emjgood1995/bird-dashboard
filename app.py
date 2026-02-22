@@ -2744,8 +2744,8 @@ elif page == "Nearby Sightings":
     if "Lat" not in df.columns or "Lon" not in df.columns or df["Lat"].dropna().empty:
         st.warning("No location data available for your station.")
     else:
-        stn_lat = float(df["Lat"].mode().iloc[0])
-        stn_lon = float(df["Lon"].mode().iloc[0])
+        stn_lat = 52.2387
+        stn_lon = 0.2477
 
         col_r, col_d = st.columns(2)
         with col_r:
