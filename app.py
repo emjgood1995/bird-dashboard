@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import base64
+import datetime
 import hashlib
 import pathlib
 import pandas as pd
@@ -145,6 +146,29 @@ st.markdown("""
      which breaks the header flexbox layout and makes the expand button disappear */
   [data-testid="stMainMenu"] { display: none !important; }
   .stDecoration { display: none !important; }
+
+  /* Birthday banner animation */
+  @keyframes birthday-shimmer {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .birthday-banner {
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    text-align: center;
+    background: linear-gradient(
+      270deg, #3d6b44, #b89040, #8c5a70, #4a7090, #d4ac60, #5c8c5c, #c47a5a
+    );
+    background-size: 400% 400%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: birthday-shimmer 4s ease infinite;
+    padding: 1rem 0 0.5rem 0;
+    margin-bottom: 0;
+  }
 
   /* ── Sidebar toggle buttons — visual only, don't touch font/icons ──── */
   [data-testid="stSidebarCollapseButton"],
@@ -471,18 +495,22 @@ st.caption("Detections across time, seasons, and community composition.")
 # ---- Sidebar filters ----
 st.sidebar.header("Explore")
 
+_pages = [
+    "Overview",
+    "Community",
+    "NMDS",
+    "Dawn Chorus Overview",
+    "Weather & Activity",
+    "Data Quality",
+    "Records",
+    "Species Explorer",
+]
+if True:  # datetime.date.today().month == 2 and datetime.date.today().day == 23:
+    _pages.append("\U0001f382")
+
 page = st.sidebar.radio(
     "View",
-    [
-        "Overview",
-        "Community",
-        "NMDS",
-        "Dawn Chorus Overview",
-        "Weather & Activity",
-        "Data Quality",
-        "Records",
-        "Species Explorer",
-    ],
+    _pages,
     label_visibility="collapsed",
 )
 st.sidebar.divider()
@@ -2568,3 +2596,81 @@ elif page == "Species Explorer":
                         st.success(f"Saved **{se_sci}** — {', '.join(parts)}. Pushed to GitHub.")
                     else:
                         st.error(f"GitHub PUT failed ({put_resp.status_code}): {put_resp.text}")
+
+# ── Birthday Easter Egg ──────────────────────────────────────────────────────
+elif page == "\U0001f382":
+    st.balloons()
+
+    st.markdown(
+        '<div class="birthday-banner">&#x2727; H A P P Y &nbsp; B I R T H D A Y &#x2727;</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Filter to Feb 23 across all years
+    bday = filtered[
+        (filtered["timestamp"].dt.month == 2) & (filtered["timestamp"].dt.day == 23)
+    ]
+
+    if bday.empty:
+        st.info("No birds recorded on your birthday yet — check back tonight!")
+    else:
+        # KPI metrics
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total Detections", f"{len(bday):,}")
+        k2.metric("Unique Species", f"{bday['Com_Name'].nunique():,}")
+        k3.metric("Years of Data", f"{bday['timestamp'].dt.year.nunique()}")
+
+        st.divider()
+
+        # Birthday Birds — horizontal bar chart
+        st.subheader("Birthday Birds")
+        bday_sp = (
+            bday["Com_Name"].value_counts()
+            .reset_index()
+        )
+        bday_sp.columns = ["Species", "Count"]
+        bday_sp = bday_sp.sort_values("Count", ascending=True)
+
+        fig_sp = px.bar(
+            bday_sp, x="Count", y="Species", orientation="h",
+            color="Count",
+            color_continuous_scale=[[0, NATURE_PALETTE[6]], [1, NATURE_PALETTE[0]]],
+            labels={"Count": "Detections", "Species": ""},
+        )
+        fig_sp.update_coloraxes(showscale=False)
+        fig_sp.update_traces(marker_line_width=0)
+        st.plotly_chart(style_fig(fig_sp), use_container_width=True)
+
+        st.divider()
+
+        # Hourly activity chart
+        st.subheader("Hourly Activity on Feb 23")
+        hourly = bday.groupby(bday["timestamp"].dt.hour).size().reset_index(name="Count")
+        hourly.columns = ["Hour", "Count"]
+
+        fig_hr = px.bar(
+            hourly, x="Hour", y="Count",
+            labels={"Hour": "Hour of Day", "Count": "Detections"},
+            color_discrete_sequence=[PRIMARY],
+        )
+        fig_hr.update_layout(bargap=0.15)
+        st.plotly_chart(style_fig(fig_hr), use_container_width=True)
+
+        st.divider()
+
+        # Fun birthday stats
+        st.subheader("Fun Birthday Stats")
+        f1, f2, f3 = st.columns(3)
+
+        earliest_row = bday.loc[bday["timestamp"].dt.time.idxmin()]
+        earliest_time = earliest_row["timestamp"].strftime("%H:%M")
+        f1.metric("Earliest Bird", earliest_row["Com_Name"], delta=earliest_time, delta_color="off")
+
+        most_common = bday["Com_Name"].value_counts().idxmax()
+        most_common_n = bday["Com_Name"].value_counts().max()
+        f2.metric("Most Common Birthday Bird", most_common, delta=f"{most_common_n} detections", delta_color="off")
+
+        rarest = bday["Com_Name"].value_counts()
+        rarest_sp = rarest[rarest == rarest.min()]
+        rarest_label = rarest_sp.index[0] if len(rarest_sp) == 1 else f"{rarest_sp.index[0]} (+{len(rarest_sp)-1} more)"
+        f3.metric("Rarest Birthday Visitor", rarest_label, delta=f"{rarest.min()} detection(s)", delta_color="off")
