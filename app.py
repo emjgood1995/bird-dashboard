@@ -25,7 +25,7 @@ st.markdown("""
   @import url('https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 
   :root {
-    --bg:     #f5f3ee;
+    --bg:     #e6f0ff;
     --panel:  #ffffff;
     --text:   #1a2416;
     --muted:  #4a5c44;
