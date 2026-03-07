@@ -20,9 +20,11 @@ SOURCE_DB="${1:-}"
 
 if [[ -z "${SOURCE_DB}" ]]; then
   CANDIDATES=(
-    "/home/birdnet/BirdNET-Pi/birds.db"
+    "/home/birdmic/BirdNET-Pi/scripts/birds.db"
     "/home/birdnet/BirdNET-Pi/scripts/birds.db"
     "/home/birdmic/BirdNET-Pi/birds.db"
+    "/home/birdnet/BirdNET-Pi/birds.db"
+    "/home/pi/BirdNET-Pi/scripts/birds.db"
     "/home/pi/BirdNET-Pi/birds.db"
   )
   for p in "${CANDIDATES[@]}"; do
@@ -36,7 +38,7 @@ fi
 if [[ -z "${SOURCE_DB}" ]]; then
   echo "ERROR: could not detect SOURCE_DB."
   echo "Pass it explicitly, e.g.:"
-  echo "  $0 /home/birdnet/BirdNET-Pi/birds.db"
+  echo "  $0 /home/birdmic/BirdNET-Pi/scripts/birds.db"
   exit 1
 fi
 
@@ -50,4 +52,3 @@ echo "Repo dir: ${REPO_DIR}"
 echo "Target file: ${TARGET_FILE}"
 
 "${REPO_DIR}/scripts/push_birds_db.sh" "${SOURCE_DB}"
-

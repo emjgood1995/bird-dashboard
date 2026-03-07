@@ -33,8 +33,8 @@ LOG_DIR="${LOG_DIR:-${REPO_DIR}/logs}"
 
 mkdir -p "${LOG_DIR}"
 
-SYNC_CMD="cd ${REPO_DIR} && ${REPO_DIR}/scripts/birdmic_sync_to_repo.sh ${SOURCE_DB} >> ${LOG_DIR}/db_sync.log 2>&1"
-CLEAN_CMD="cd ${REPO_DIR} && ${REPO_DIR}/scripts/birdmic_cleanup_wavs.sh ${BIRDSONGS_DIR} ${CLEAN_DAYS} --delete >> ${LOG_DIR}/wav_cleanup.log 2>&1"
+SYNC_CMD="cd ${REPO_DIR} && /usr/bin/env bash ${REPO_DIR}/scripts/birdmic_sync_to_repo.sh ${SOURCE_DB} >> ${LOG_DIR}/db_sync.log 2>&1"
+CLEAN_CMD="cd ${REPO_DIR} && /usr/bin/env bash ${REPO_DIR}/scripts/birdmic_cleanup_wavs.sh ${BIRDSONGS_DIR} ${CLEAN_DAYS} --delete >> ${LOG_DIR}/wav_cleanup.log 2>&1"
 
 TMP_CRON="$(mktemp)"
 crontab -l 2>/dev/null | grep -v "birdmic_sync_to_repo.sh" | grep -v "birdmic_cleanup_wavs.sh" > "${TMP_CRON}" || true
@@ -55,4 +55,3 @@ echo "  Cleanup:${CLEAN_SCHEDULE}"
 echo ""
 echo "Current crontab:"
 crontab -l
-

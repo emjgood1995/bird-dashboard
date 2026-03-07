@@ -51,6 +51,21 @@ if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
 fi
 trap 'rmdir "${LOCK_DIR}" >/dev/null 2>&1 || true' EXIT
 
+push_pending_commits() {
+  local ahead_count
+  ahead_count="$(git -C "${REPO_DIR}" rev-list --count "${REMOTE_NAME}/${BRANCH_NAME}..${BRANCH_NAME}" 2>/dev/null || echo 0)"
+  if [[ "${ahead_count}" -gt 0 ]]; then
+    echo "Local branch is ahead by ${ahead_count} commit(s). Pushing pending commits."
+    # Explicit LFS upload avoids reliance on possibly non-executable git hooks.
+    git -C "${REPO_DIR}" lfs push "${REMOTE_NAME}" "${BRANCH_NAME}"
+    git -C "${REPO_DIR}" push "${REMOTE_NAME}" "${BRANCH_NAME}"
+  fi
+}
+
+# Ensure we are up to date before touching the working copy.
+git -C "${REPO_DIR}" fetch "${REMOTE_NAME}" "${BRANCH_NAME}"
+git -C "${REPO_DIR}" pull --ff-only "${REMOTE_NAME}" "${BRANCH_NAME}"
+
 TARGET_PATH="${REPO_DIR}/${TARGET_FILE}"
 TMP_PATH="${TARGET_PATH}.tmp"
 
@@ -59,17 +74,17 @@ cp "${SOURCE_DB}" "${TMP_PATH}"
 
 if [[ -f "${TARGET_PATH}" ]] && cmp -s "${TMP_PATH}" "${TARGET_PATH}"; then
   rm -f "${TMP_PATH}"
-  echo "No database changes detected. Nothing to commit."
-  exit 0
+  # Source equals working copy. Still stage in case TARGET_FILE is pending relative to HEAD.
+  git -C "${REPO_DIR}" add "${TARGET_FILE}"
+  if git -C "${REPO_DIR}" diff --cached --quiet; then
+    push_pending_commits
+    echo "No database changes detected. Nothing to commit."
+    exit 0
+  fi
+else
+  mv -f "${TMP_PATH}" "${TARGET_PATH}"
+  git -C "${REPO_DIR}" add "${TARGET_FILE}"
 fi
-
-mv -f "${TMP_PATH}" "${TARGET_PATH}"
-
-# Ensure we are up to date before committing.
-git -C "${REPO_DIR}" fetch "${REMOTE_NAME}" "${BRANCH_NAME}"
-git -C "${REPO_DIR}" pull --ff-only "${REMOTE_NAME}" "${BRANCH_NAME}"
-
-git -C "${REPO_DIR}" add "${TARGET_FILE}"
 
 if git -C "${REPO_DIR}" diff --cached --quiet; then
   echo "No staged changes after update. Nothing to commit."
@@ -78,6 +93,8 @@ fi
 
 STAMP="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 git -C "${REPO_DIR}" commit -m "Automated DB update: ${STAMP}"
+# Explicit LFS upload avoids reliance on possibly non-executable git hooks.
+git -C "${REPO_DIR}" lfs push "${REMOTE_NAME}" "${BRANCH_NAME}"
 git -C "${REPO_DIR}" push "${REMOTE_NAME}" "${BRANCH_NAME}"
 
 echo "Database sync committed and pushed successfully."
