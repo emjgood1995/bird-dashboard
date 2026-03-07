@@ -475,7 +475,7 @@ def fetch_bird_audio(sci_name: str):
 # ---- Load data ----
 @st.cache_data
 def load_data():
-    conn = sqlite3.connect("birds.db")
+    conn = sqlite3.connect("birds_lfs.db")
     df = pd.read_sql_query("SELECT * FROM detections", conn)
     conn.close()
 
