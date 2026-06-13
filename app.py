@@ -949,7 +949,7 @@ if page == "Daily Overview":
 
             same_moment = species_windows["First_Appearance"] == species_windows["Last_Appearance"]
             species_windows.loc[same_moment, "Last_Appearance"] = (
-                species_windows.loc[same_moment, "Last_Appearance"] + pd.Timedelta(minutes=1)
+                species_windows.loc[same_moment, "Last_Appearance"] + pd.Timedelta(minutes=10)
             )
             species_windows["_start_str"] = species_windows["First_Appearance"].dt.strftime("%H:%M")
             species_windows["_end_str"] = species_windows["Last_Appearance"].dt.strftime("%H:%M")
