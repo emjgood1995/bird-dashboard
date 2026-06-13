@@ -977,11 +977,21 @@ if page == "Daily Overview":
                         "Detections: %{customdata[2]}"
                         "<extra>%{fullData.name}</extra>"
                     )
-            fig.update_yaxes(categoryorder="array", categoryarray=species_windows["Species"].tolist())
+            day_start = pd.Timestamp.combine(daily_selected_date, datetime.time(0, 0))
+            day_end = day_start + pd.Timedelta(hours=24)
+            fig.update_yaxes(
+                categoryorder="array",
+                categoryarray=list(reversed(species_windows["Species"].tolist())),
+            )
             fig.update_layout(
                 height=max(500, len(species_windows) * 24),
                 xaxis_title="Time of day",
                 yaxis_title="",
+                xaxis=dict(
+                    range=[day_start, day_end],
+                    dtick=3600000,
+                    tickformat="%H:%M",
+                ),
             )
             st.plotly_chart(style_fig(fig), use_container_width=True)
 
