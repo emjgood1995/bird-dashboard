@@ -933,6 +933,58 @@ if page == "Daily Overview":
             )
             st.plotly_chart(style_fig(fig), use_container_width=True)
 
+            species_windows = (
+                daily_view.groupby("Com_Name")
+                .agg(
+                    First_Appearance=("timestamp", "min"),
+                    Last_Appearance=("timestamp", "max"),
+                    Detections=("Com_Name", "size"),
+                    UK_Status=("UK_Status", lambda x: x.mode().iloc[0] if len(x.mode()) else "Review Recording"),
+                )
+                .reset_index()
+                .rename(columns={"Com_Name": "Species"})
+            )
+            species_windows["Sort_Order"] = species_windows["Species"].map({sp: i for i, sp in enumerate(species_order)})
+            species_windows = species_windows.sort_values("Sort_Order")
+
+            same_moment = species_windows["First_Appearance"] == species_windows["Last_Appearance"]
+            species_windows.loc[same_moment, "Last_Appearance"] = (
+                species_windows.loc[same_moment, "Last_Appearance"] + pd.Timedelta(minutes=1)
+            )
+            species_windows["_start_str"] = species_windows["First_Appearance"].dt.strftime("%H:%M")
+            species_windows["_end_str"] = species_windows["Last_Appearance"].dt.strftime("%H:%M")
+
+            gantt_cmap = status_color_map(species_windows["UK_Status"].unique())
+            fig = px.timeline(
+                species_windows,
+                x_start="First_Appearance",
+                x_end="Last_Appearance",
+                y="Species",
+                color="UK_Status",
+                color_discrete_map=gantt_cmap,
+                hover_data={"Detections": True, "UK_Status": True},
+                title="First and Last Appearance by Species",
+                labels={"Species": "", "UK_Status": "UK Status"},
+            )
+            for trace in fig.data:
+                mask = species_windows["UK_Status"].astype(str) == trace.name
+                if mask.any():
+                    trace.customdata = species_windows.loc[mask, ["_start_str", "_end_str", "Detections"]].values
+                    trace.hovertemplate = (
+                        "<b>%{y}</b><br>"
+                        "First: %{customdata[0]}<br>"
+                        "Last: %{customdata[1]}<br>"
+                        "Detections: %{customdata[2]}"
+                        "<extra>%{fullData.name}</extra>"
+                    )
+            fig.update_yaxes(categoryorder="array", categoryarray=species_windows["Species"].tolist())
+            fig.update_layout(
+                height=max(500, len(species_windows) * 24),
+                xaxis_title="Time of day",
+                yaxis_title="",
+            )
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
 # ── Overview ────────────────────────────────────────────────────────────────
 elif page == "Overview":
     top = (
