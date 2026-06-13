@@ -765,7 +765,7 @@ st.divider()
 
 # ── Daily Overview ──────────────────────────────────────────────────────────
 if page == "Daily Overview":
-    st.subheader("Previous Day Deep Dive")
+    st.subheader("Daily Summary")
     st.caption(
         "This page uses its own day navigation and ignores the sidebar date range, year, season, and month filters."
     )
@@ -798,12 +798,6 @@ if page == "Daily Overview":
         daily_view = daily_filtered.dropna(subset=["timestamp"]).copy()
         daily_view["hour"] = daily_view["timestamp"].dt.hour
 
-        dm1, dm2, dm3, dm4 = st.columns(4)
-        dm1.metric("Date", daily_selected_date.strftime("%d %b %Y"))
-        dm2.metric("Detections", f"{len(daily_view):,}")
-        dm3.metric("Species", f"{daily_view['Com_Name'].nunique():,}")
-        dm4.metric("Active Hours", f"{daily_view['hour'].nunique():,}")
-
         if len(daily_view) == 0:
             st.info("No detections were recorded for this day under the current filters.")
         else:
@@ -825,10 +819,11 @@ if page == "Daily Overview":
             if weather_daily_row is None:
                 st.info("No weather summary is available for this day.")
             else:
-                wx1, wx2, wx3, wx4, wx5 = st.columns(5)
+                wx1, wx2, wx3 = st.columns(3)
                 wx1.metric("Max Temp", f"{weather_daily_row['temp_max']:.1f}°C")
                 wx2.metric("Min Temp", f"{weather_daily_row['temp_min']:.1f}°C")
                 wx3.metric("Rainfall", f"{weather_daily_row['precip_sum']:.1f} mm")
+                wx4, wx5 = st.columns(2)
                 wx4.metric("Max Wind", f"{weather_daily_row['wind_max']:.1f} km/h")
                 wx5.metric(
                     "Daylight",
