@@ -775,7 +775,7 @@ if page == "Daily Overview":
     else:
         current_idx = daily_available_dates.index(daily_selected_date)
 
-        nav_l, nav_c, nav_r = st.columns([1.2, 3.6, 1.2], gap="medium")
+        nav_l, nav_c, nav_r, nav_m = st.columns([1.2, 3.2, 1.2, 1.4], gap="medium")
         with nav_l:
             if st.button("◀ Previous day", use_container_width=True, disabled=current_idx == 0):
                 st.session_state["daily_overview_date"] = daily_available_dates[current_idx - 1]
@@ -787,6 +787,10 @@ if page == "Daily Overview":
         with nav_r:
             if st.button("Next day ▶", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1):
                 st.session_state["daily_overview_date"] = daily_available_dates[current_idx + 1]
+                st.rerun()
+        with nav_m:
+            if st.button("Most Recent", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1):
+                st.session_state["daily_overview_date"] = daily_available_dates[-1]
                 st.rerun()
 
         st.caption(f"{len(daily_available_dates):,} available days in the filtered dataset.")
@@ -803,106 +807,136 @@ if page == "Daily Overview":
         if len(daily_view) == 0:
             st.info("No detections were recorded for this day under the current filters.")
         else:
+            weather_daily_row = None
+            if {"Lat", "Lon"}.issubset(daily_view.columns) and daily_view["Lat"].notna().any() and daily_view["Lon"].notna().any():
+                w_lat = float(daily_view["Lat"].mode().iloc[0])
+                w_lon = float(daily_view["Lon"].mode().iloc[0])
+                _, daily_weather = fetch_weather(
+                    w_lat, w_lon,
+                    daily_selected_date.strftime("%Y-%m-%d"),
+                    daily_selected_date.strftime("%Y-%m-%d"),
+                )
+                if daily_weather is not None and len(daily_weather):
+                    weather_match = daily_weather[daily_weather["date"] == daily_selected_date]
+                    if len(weather_match):
+                        weather_daily_row = weather_match.iloc[0]
+
+            st.subheader("Weather Summary")
+            if weather_daily_row is None:
+                st.info("No weather summary is available for this day.")
+            else:
+                wx1, wx2, wx3, wx4, wx5 = st.columns(5)
+                wx1.metric("Max Temp", f"{weather_daily_row['temp_max']:.1f}°C")
+                wx2.metric("Min Temp", f"{weather_daily_row['temp_min']:.1f}°C")
+                wx3.metric("Rainfall", f"{weather_daily_row['precip_sum']:.1f} mm")
+                wx4.metric("Max Wind", f"{weather_daily_row['wind_max']:.1f} km/h")
+                wx5.metric(
+                    "Daylight",
+                    (
+                        f"{weather_daily_row['sunrise'].strftime('%H:%M')} to "
+                        f"{weather_daily_row['sunset'].strftime('%H:%M')}"
+                    ),
+                )
+
             species_order = daily_view["Com_Name"].value_counts().index.tolist()
             species_color_map = {
                 sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
                 for i, sp in enumerate(species_order)
             }
 
-            row1_l, row1_r = st.columns(2, gap="large")
-
-            with row1_l:
-                hourly = (
-                    daily_view.groupby("hour")
-                    .size()
-                    .reindex(range(24), fill_value=0)
-                    .reset_index(name="Count")
-                )
-                fig = px.area(
-                    hourly, x="hour", y="Count",
-                    title="Activity by Hour",
-                    labels={"hour": "Hour of day", "Count": "Detections"},
-                )
-                fig.update_traces(
-                    line=dict(color=PRIMARY, width=2),
-                    fillcolor="rgba(61,107,68,0.14)",
-                    marker=dict(size=5, color=PRIMARY),
-                    mode="lines+markers",
-                )
-                fig.update_layout(xaxis=dict(dtick=1))
-                st.plotly_chart(style_fig(fig), use_container_width=True)
-
-            with row1_r:
-                sp_hour = (
-                    daily_view.groupby(["hour", "Com_Name"])
-                    .size()
-                    .reset_index(name="Count")
-                )
-                fig = px.area(
-                    sp_hour, x="hour", y="Count",
-                    color="Com_Name",
-                    title="Activity by Hour by Species",
-                    labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
-                    category_orders={"Com_Name": species_order},
-                    color_discrete_map=species_color_map,
-                )
-                hourly_total = daily_view.groupby("hour").size().reset_index(name="Count")
-                fig.add_scatter(
-                    x=hourly_total["hour"], y=hourly_total["Count"],
-                    mode="lines+markers",
-                    line=dict(color="#1a2416", width=2.5, dash="dot"),
-                    marker=dict(size=5, color="#1a2416"),
-                    name="Total", showlegend=True,
-                )
-                fig.update_layout(xaxis=dict(dtick=1))
-                fig.update_traces(marker_line_width=0)
-                st.plotly_chart(style_fig(fig), use_container_width=True)
-
             st.divider()
 
-            row2_l, row2_r = st.columns(2, gap="large")
+            species_counts = (
+                daily_view["Com_Name"].value_counts()
+                .rename_axis("Species")
+                .reset_index(name="Count")
+                .sort_values("Count", ascending=True)
+            )
+            fig = px.bar(
+                species_counts, x="Count", y="Species", orientation="h",
+                title="All Species by Detection Count",
+                color="Count",
+                color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
+                labels={"Count": "Detections", "Species": ""},
+            )
+            fig.update_coloraxes(showscale=False)
+            fig.update_traces(marker_line_width=0)
+            fig.update_layout(height=max(420, len(species_counts) * 26))
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
-            with row2_l:
-                species_counts = (
-                    daily_view["Com_Name"].value_counts()
-                    .rename_axis("Species")
-                    .reset_index(name="Count")
-                    .sort_values("Count", ascending=True)
-                )
-                fig = px.bar(
-                    species_counts, x="Count", y="Species", orientation="h",
-                    title="All Species by Detection Count",
-                    color="Count",
-                    color_continuous_scale=[[0, "#a3c47a"], [1, "#2d5233"]],
-                    labels={"Count": "Detections", "Species": ""},
-                )
-                fig.update_coloraxes(showscale=False)
-                fig.update_traces(marker_line_width=0)
-                fig.update_layout(height=max(420, len(species_counts) * 26))
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+            sp_hour = (
+                daily_view.groupby(["hour", "Com_Name"])
+                .size()
+                .reset_index(name="Count")
+            )
+            fig = px.area(
+                sp_hour, x="hour", y="Count",
+                color="Com_Name",
+                title="Activity by Hour by Species",
+                labels={"hour": "Hour of day", "Count": "Detections", "Com_Name": "Species"},
+                category_orders={"Com_Name": species_order},
+                color_discrete_map=species_color_map,
+            )
+            hourly_total = daily_view.groupby("hour").size().reset_index(name="Count")
+            fig.add_scatter(
+                x=hourly_total["hour"], y=hourly_total["Count"],
+                mode="lines+markers",
+                line=dict(color="#1a2416", width=2.5, dash="dot"),
+                marker=dict(size=5, color="#1a2416"),
+                name="Total", showlegend=True,
+            )
+            fig.update_layout(xaxis=dict(dtick=1))
+            fig.update_traces(marker_line_width=0)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
-            with row2_r:
-                comp_hour = (
-                    daily_view.groupby(["hour", "Com_Name"])
-                    .size()
-                    .reset_index(name="Count")
-                )
-                comp_hour["Percent"] = (
-                    comp_hour.groupby("hour")["Count"]
-                    .transform(lambda x: (x / x.sum()) * 100)
-                )
-                fig = px.bar(
-                    comp_hour,
-                    x="hour", y="Percent",
-                    color="Com_Name",
-                    title="Community Composition by Hour (%)",
-                    labels={"hour": "Hour of day", "Percent": "% of detections", "Com_Name": "Species"},
-                    category_orders={"Com_Name": species_order},
-                    color_discrete_map=species_color_map,
-                )
-                fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
-                fig.update_traces(marker_line_width=0)
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+            comp_hour = (
+                daily_view.groupby(["hour", "Com_Name"])
+                .size()
+                .reset_index(name="Count")
+            )
+            comp_hour["Percent"] = (
+                comp_hour.groupby("hour")["Count"]
+                .transform(lambda x: (x / x.sum()) * 100)
+            )
+            fig = px.bar(
+                comp_hour,
+                x="hour", y="Percent",
+                color="Com_Name",
+                title="Community Composition by Hour (%)",
+                labels={"hour": "Hour of day", "Percent": "% of detections", "Com_Name": "Species"},
+                category_orders={"Com_Name": species_order},
+                color_discrete_map=species_color_map,
+            )
+            fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
+            fig.update_traces(marker_line_width=0)
+            st.plotly_chart(style_fig(fig), use_container_width=True)
+
+            heatmap_counts = (
+                daily_view.groupby(["Com_Name", "hour"])
+                .size()
+                .unstack(fill_value=0)
+                .reindex(index=species_order, columns=range(24), fill_value=0)
+            )
+            fig = px.imshow(
+                heatmap_counts.values,
+                x=list(range(24)),
+                y=heatmap_counts.index.tolist(),
+                title="Species by Hour Heatmap",
+                color_continuous_scale=HEATMAP_SCALE,
+                labels={"x": "Hour of day", "y": "Species", "color": "Detections"},
+                aspect="auto",
+            )
+            fig.update_layout(
+                xaxis=dict(dtick=1),
+                height=max(500, len(heatmap_counts.index) * 24),
+                coloraxis_colorbar=dict(
+                    title="Detections",
+                    tickfont=dict(size=11, color="#4a5c44"),
+                    title_font=dict(size=12, color="#4a5c44"),
+                    thickness=14,
+                ),
+            )
+            st.plotly_chart(style_fig(fig), use_container_width=True)
 
 # ── Overview ────────────────────────────────────────────────────────────────
 elif page == "Overview":
