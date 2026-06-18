@@ -473,9 +473,18 @@ def fetch_bird_audio(sci_name: str):
 
 
 # ---- Load data ----
-@st.cache_data
-def load_data():
-    conn = sqlite3.connect("birds_lfs.db")
+DB_PATH = pathlib.Path("birds_lfs.db")
+
+
+def database_cache_signature(db_path):
+    stat = db_path.stat()
+    return str(db_path), stat.st_mtime_ns, stat.st_size
+
+
+@st.cache_data(max_entries=2)
+def load_data(db_path, db_mtime_ns, db_size):
+    # The mtime and size arguments make Streamlit reload when cron updates the DB.
+    conn = sqlite3.connect(db_path)
     df = pd.read_sql_query("SELECT * FROM detections", conn)
     conn.close()
 
@@ -496,7 +505,7 @@ def load_data():
     df["UK_Status"] = df["UK_Status"].fillna("Review Recording")
     return df
 
-df = load_data()
+df = load_data(*database_cache_signature(DB_PATH))
 
 
 def load_diet_map():
