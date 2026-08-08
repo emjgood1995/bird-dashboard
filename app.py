@@ -1812,7 +1812,8 @@ def style_news_fig(fig):
     fig.update_layout(
         height=NEWS_CHART_HEIGHT,
         margin=dict(l=8, r=8, t=28, b=6),
-        title_text=None,
+        title_text="",
+        legend_title_text="",
         legend=dict(
             orientation="h",
             y=1.08,
@@ -1860,7 +1861,7 @@ def render_activity_period_chart(all_data, start_date, end_date):
         x="date",
         y="Detections",
         color="Selected",
-        title=f"Detection activity over time ({y_title.lower()})",
+        title="",
         labels={"date": "Date", "Detections": y_title, "Selected": ""},
         color_discrete_map={"Selected": TERTIARY, "Other": PRIMARY},
     )
@@ -1908,7 +1909,7 @@ def render_species_recent_chart(all_data, start_date, end_date, species):
         x="date",
         y="Detections",
         color="Selected",
-        title=f"{species} detections around the selected period",
+        title="",
         labels={"date": "Date", "Detections": "Detections", "Selected": ""},
         color_discrete_map={"Selected": TERTIARY, "Other": SECONDARY},
     )
@@ -1964,7 +1965,7 @@ def render_species_mix_period_chart(all_data, start_date, end_date):
         x="date",
         y="Species",
         color="Selected",
-        title=f"Species richness over time ({y_title.lower()})",
+        title="",
         labels={"date": "Date", "Species": y_title, "Selected": ""},
         color_discrete_map={"Selected": TERTIARY, "Other": SECONDARY},
     )
@@ -2022,7 +2023,7 @@ def render_hourly_activity_chart(all_data, period_data, start_date, end_date, hi
         )
 
     fig.update_layout(
-        title="Hourly activity profile",
+        title_text="",
         showlegend=True,
         xaxis_title="Hour",
         yaxis_title="Detections",
@@ -2080,7 +2081,7 @@ def render_weather_activity_chart(period_data, weather_daily, weather_metric):
         ),
         secondary_y=True,
     )
-    fig.update_layout(title=f"Detections with {metric_name.lower()}", legend=dict(x=0.01, y=0.99))
+    fig.update_layout(title_text="", legend=dict(x=0.01, y=0.99))
     fig.update_yaxes(title_text="Detections", secondary_y=False)
     fig.update_yaxes(title_text=metric_label, secondary_y=True)
     st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
