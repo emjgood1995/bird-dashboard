@@ -1662,7 +1662,7 @@ def build_news_insights(all_data, period_data, start_date, end_date, events, wea
             continue
         seen.add(key)
         deduped.append(insight)
-    return deduped[:10]
+    return deduped
 
 
 def render_news_insight(insight, lead=False):
@@ -1911,15 +1911,35 @@ if page == "Daily Overview":
             )
 
             st.subheader("Headlines")
-            if news_insights:
-                render_news_insight(news_insights[0], lead=True)
-                if len(news_insights) > 1:
+            visible_news_insights = news_insights[:10]
+            if visible_news_insights:
+                render_news_insight(visible_news_insights[0], lead=True)
+                if len(visible_news_insights) > 1:
                     feed_cols = st.columns(2, gap="medium")
-                    for insight_idx, insight in enumerate(news_insights[1:]):
+                    for insight_idx, insight in enumerate(visible_news_insights[1:]):
                         with feed_cols[insight_idx % 2]:
                             render_news_insight(insight)
             else:
                 st.info("No major changes detected for this period.")
+
+            with st.expander("Why these headlines?"):
+                if news_insights:
+                    insight_rows = []
+                    for insight_idx, insight in enumerate(news_insights, start=1):
+                        insight_rows.append({
+                            "Rank": insight_idx,
+                            "Shown": "Yes" if insight_idx <= 10 else "Hidden",
+                            "Priority": insight["priority"],
+                            "Category": insight["category"],
+                            "Headline": insight["headline"],
+                            "Detail": insight["detail"],
+                        })
+                    st.caption(
+                        "Candidates are sorted by priority. The page shows the top 10; lower-ranked candidates are hidden here."
+                    )
+                    st.dataframe(pd.DataFrame(insight_rows), hide_index=True, use_container_width=True)
+                else:
+                    st.write("No headline rules fired for this period under the current filters.")
 
             st.divider()
             st.subheader("Drill-down")
