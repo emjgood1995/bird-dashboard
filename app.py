@@ -159,6 +159,31 @@ st.markdown("""
     border-radius: 10px !important;
     border-color: var(--border) !important;
   }
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] {
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] label {
+    background: #ffffff !important;
+    border: 1px solid rgba(26,36,22,0.14) !important;
+    border-radius: 999px !important;
+    box-shadow: 0 2px 8px rgba(26,36,22,0.04) !important;
+    padding: 7px 13px !important;
+    margin: 0 !important;
+  }
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] label > div:first-child {
+    display: none !important;
+  }
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] label[data-checked="true"],
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] label:has(input:checked) {
+    background: rgba(61,107,68,0.13) !important;
+    border-color: rgba(61,107,68,0.55) !important;
+  }
+  section[data-testid="stMain"] .stRadio [role="radiogroup"] label p {
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+  }
 
   /* Plotly modebar */
   .js-plotly-plot .plotly .modebar { opacity: 0.2; }
@@ -200,6 +225,39 @@ st.markdown("""
   }
 
   /* Garden news feed */
+  .news-feed-title {
+    color: var(--text) !important;
+    font-size: 2.25rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.1 !important;
+    margin: 0 0 18px 0 !important;
+  }
+  .daily-date-panel {
+    background: #ffffff !important;
+    border: 1px solid rgba(26,36,22,0.12) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 3px 14px rgba(26,36,22,0.05) !important;
+    padding: 18px 20px !important;
+    margin: 0 0 18px 0 !important;
+  }
+  .daily-date-title {
+    color: var(--text) !important;
+    font-size: 1.9rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0 !important;
+    line-height: 1.12 !important;
+  }
+  .daily-date-meta {
+    color: var(--muted) !important;
+    font-size: 0.98rem !important;
+    font-weight: 600 !important;
+    line-height: 1.35 !important;
+    margin-top: 8px !important;
+  }
+  .daily-controls-spacer {
+    height: 4px !important;
+  }
   .news-card {
     --news-accent: var(--accent);
     background: #ffffff !important;
@@ -227,6 +285,13 @@ st.markdown("""
     line-height: 1.35 !important;
   }
   @media (max-width: 700px) {
+    .news-feed-title {
+      font-size: 1.85rem !important;
+      margin-bottom: 12px !important;
+    }
+    .daily-date-title {
+      font-size: 1.45rem !important;
+    }
     .news-card {
       grid-template-columns: 1fr !important;
       gap: 5px !important;
@@ -2298,47 +2363,50 @@ st.divider()
 
 # ── Daily Overview ──────────────────────────────────────────────────────────
 if page == "Daily Overview":
-    st.subheader("Garden News Feed")
-    st.caption(
-        "Headlines are rule-based and use the selected species, status, and confidence filters."
-    )
+    st.markdown('<div class="news-feed-title">Garden News Feed</div>', unsafe_allow_html=True)
 
     if not daily_available_dates:
         st.info("No dated detections are available for the current species, status, and confidence filters.")
     else:
-        daily_period_mode = st.radio(
-            "Period",
-            DAILY_PERIOD_OPTIONS,
-            horizontal=True,
-            key="daily_period_mode",
-        )
+        current_idx = daily_available_dates.index(daily_selected_date)
+        date_col, controls_col = st.columns([1.7, 1], gap="large")
+        with controls_col:
+            daily_period_mode = st.radio(
+                "Period",
+                DAILY_PERIOD_OPTIONS,
+                horizontal=True,
+                key="daily_period_mode",
+                label_visibility="collapsed",
+            )
+
         daily_window_start, daily_window_end = daily_period_bounds(daily_selected_date, daily_period_mode)
         daily_period_filtered = filter_date_window(daily_base, daily_window_start, daily_window_end)
 
-        current_idx = daily_available_dates.index(daily_selected_date)
-
-        nav_l, nav_c, nav_r, nav_m = st.columns([1.2, 3.2, 1.2, 1.4], gap="medium")
-        with nav_l:
-            if st.button("◀ Previous day", use_container_width=True, disabled=current_idx == 0):
-                st.session_state["daily_overview_date"] = daily_available_dates[current_idx - 1]
-                st.rerun()
-        with nav_c:
+        with date_col:
             st.markdown(
-                f"### {format_period_label(daily_window_start, daily_window_end)}",
+                f"""
+<div class="daily-date-panel">
+  <div class="daily-date-title">{html.escape(format_period_label(daily_window_start, daily_window_end))}</div>
+  <div class="daily-date-meta">{len(daily_period_filtered):,} detections · {len(daily_available_dates):,} available days</div>
+</div>
+""",
+                unsafe_allow_html=True,
             )
-        with nav_r:
-            if st.button("Next day ▶", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1):
-                st.session_state["daily_overview_date"] = daily_available_dates[current_idx + 1]
-                st.rerun()
-        with nav_m:
-            if st.button("Most Recent", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1):
-                st.session_state["daily_overview_date"] = daily_available_dates[-1]
-                st.rerun()
-
-        st.caption(
-            f"{len(daily_available_dates):,} available days in the filtered dataset. "
-            f"Viewing {len(daily_period_filtered):,} detections."
-        )
+        with controls_col:
+            st.markdown('<div class="daily-controls-spacer"></div>', unsafe_allow_html=True)
+            prev_col, latest_col, next_col = st.columns([0.55, 1.2, 0.55], gap="small")
+            with prev_col:
+                if st.button("‹", use_container_width=True, disabled=current_idx == 0, help="Previous day", key="daily_prev_day"):
+                    st.session_state["daily_overview_date"] = daily_available_dates[current_idx - 1]
+                    st.rerun()
+            with latest_col:
+                if st.button("Latest", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1, key="daily_latest_day"):
+                    st.session_state["daily_overview_date"] = daily_available_dates[-1]
+                    st.rerun()
+            with next_col:
+                if st.button("›", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1, help="Next day", key="daily_next_day"):
+                    st.session_state["daily_overview_date"] = daily_available_dates[current_idx + 1]
+                    st.rerun()
 
         daily_view = daily_period_filtered.dropna(subset=["timestamp"]).copy()
         daily_view["hour"] = daily_view["timestamp"].dt.hour
@@ -2366,7 +2434,6 @@ if page == "Daily Overview":
                 weather_daily,
             )
 
-            st.subheader("Headlines")
             visible_news_insights = select_visible_news_insights(news_insights)
             visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
