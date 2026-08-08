@@ -3,6 +3,7 @@ import sqlite3
 import base64
 import datetime
 import hashlib
+import html
 import pathlib
 import pandas as pd
 import streamlit as st
@@ -198,6 +199,70 @@ st.markdown("""
     margin-bottom: 0;
   }
 
+  /* Garden news feed */
+  .news-card {
+    --news-accent: var(--accent);
+    background: #ffffff !important;
+    border: 1px solid rgba(26,36,22,0.12) !important;
+    border-left: 7px solid var(--news-accent) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 6px 24px rgba(26,36,22,0.08) !important;
+    padding: 18px 22px 17px 22px !important;
+    margin: 0 0 14px 0 !important;
+  }
+  .news-card--lead {
+    background: linear-gradient(90deg, rgba(61,107,68,0.10), #ffffff 48%) !important;
+    border-left-width: 9px !important;
+    padding: 24px 28px 23px 28px !important;
+    margin-bottom: 18px !important;
+  }
+  .news-category {
+    display: inline-flex !important;
+    align-items: center !important;
+    color: var(--news-accent) !important;
+    font-size: 0.72rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0 !important;
+    line-height: 1 !important;
+    margin-bottom: 10px !important;
+    text-transform: uppercase !important;
+  }
+  .news-headline {
+    color: var(--text) !important;
+    font-size: 1.22rem !important;
+    font-weight: 800 !important;
+    line-height: 1.25 !important;
+    margin-bottom: 8px !important;
+  }
+  .news-card--lead .news-headline {
+    font-size: 1.85rem !important;
+    line-height: 1.17 !important;
+  }
+  .news-detail {
+    color: var(--muted) !important;
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+    line-height: 1.45 !important;
+  }
+  .news-card--lead .news-detail {
+    color: var(--text) !important;
+    font-size: 1.08rem !important;
+  }
+  @media (max-width: 700px) {
+    .news-card {
+      padding: 15px 16px 14px 16px !important;
+    }
+    .news-card--lead {
+      padding: 19px 18px 18px 18px !important;
+    }
+    .news-card--lead .news-headline {
+      font-size: 1.38rem !important;
+    }
+    .news-headline {
+      font-size: 1.08rem !important;
+    }
+  }
+
   /* ── Sidebar toggle buttons — visual only, don't touch font/icons ──── */
   [data-testid="stSidebarCollapseButton"],
   [data-testid="stSidebarNavExpandButton"] {
@@ -258,6 +323,23 @@ STATUS_COLORS = {
     "Introduced":       "#4a7090",
     "Migrant":          "#6a90b0",
     "Scarce Migrant":   "#8ab4c8",
+}
+
+NEWS_CATEGORY_COLORS = {
+    "Record": "#3d6b44",
+    "Activity": "#b89040",
+    "Arrival": "#6a90b0",
+    "Seasonal timing": "#7aaa6a",
+    "Species": "#6b7c4a",
+    "Garden year": "#8c5a70",
+    "Dawn chorus": "#c47a5a",
+    "Comeback": "#4a7090",
+    "Absence": "#607080",
+    "Community mix": "#5c8c5c",
+    "Time of day": "#d4ac60",
+    "Weather": "#4a7090",
+    "Data quality": "#8c6b8c",
+    "Diversity": "#7aaa6a",
 }
 
 DIET_COLORS = {
@@ -1700,12 +1782,21 @@ def select_visible_news_insights(news_insights, limit=VISIBLE_HEADLINE_LIMIT):
 
 
 def render_news_insight(insight, lead=False):
-    st.caption(insight["category"])
-    if lead:
-        st.markdown(f"### {insight['headline']}")
-    else:
-        st.markdown(f"**{insight['headline']}**")
-    st.write(insight["detail"])
+    category = html.escape(str(insight["category"]))
+    headline = html.escape(str(insight["headline"]))
+    detail = html.escape(str(insight["detail"]))
+    accent = NEWS_CATEGORY_COLORS.get(insight["category"], PRIMARY)
+    card_class = "news-card news-card--lead" if lead else "news-card"
+    st.markdown(
+        f"""
+<div class="{card_class}" style="--news-accent: {accent};">
+  <div class="news-category">{category}</div>
+  <div class="news-headline">{headline}</div>
+  <div class="news-detail">{detail}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 st.title("🐦 Garden Bird Dashboard")
@@ -1949,11 +2040,8 @@ if page == "Daily Overview":
             visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
                 render_news_insight(visible_news_insights[0], lead=True)
-                if len(visible_news_insights) > 1:
-                    feed_cols = st.columns(2, gap="medium")
-                    for insight_idx, insight in enumerate(visible_news_insights[1:]):
-                        with feed_cols[insight_idx % 2]:
-                            render_news_insight(insight)
+                for insight in visible_news_insights[1:]:
+                    render_news_insight(insight)
             else:
                 st.info("No major changes detected for this period.")
 
