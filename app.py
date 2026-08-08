@@ -664,6 +664,7 @@ def to_utc_hour(ts: pd.Series) -> pd.Series:
 
 DAILY_PERIOD_OPTIONS = ["Day", "Last 7 days", "Last 30 days"]
 VISIBLE_HEADLINE_LIMIT = 10
+NEWS_CHART_HEIGHT = 200
 GARDEN_EVENTS_PATH = pathlib.Path("garden_events.json")
 
 
@@ -1806,6 +1807,26 @@ def news_chart_start(all_news, end_date, period_days):
     return max(all_news["date"].min(), end_date - datetime.timedelta(days=lookback_days))
 
 
+def style_news_fig(fig):
+    fig = style_fig(fig)
+    fig.update_layout(
+        height=NEWS_CHART_HEIGHT,
+        margin=dict(l=8, r=8, t=28, b=6),
+        title_text=None,
+        legend=dict(
+            orientation="h",
+            y=1.08,
+            yanchor="bottom",
+            x=0.01,
+            font=dict(size=11, color="#1a2416"),
+            title=dict(text=""),
+        ),
+    )
+    fig.update_xaxes(title_font=dict(size=11), tickfont=dict(size=10))
+    fig.update_yaxes(title_font=dict(size=11), tickfont=dict(size=10))
+    return fig
+
+
 def render_activity_period_chart(all_data, start_date, end_date):
     all_news = prepare_news_df(all_data)
     if len(all_news) == 0:
@@ -1851,9 +1872,9 @@ def render_activity_period_chart(all_data, start_date, end_date):
         line=dict(color="#1a2416", width=2, dash="dot"),
         name="Median",
     )
-    fig.update_layout(height=280, showlegend=True)
+    fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
     return True
 
 
@@ -1899,9 +1920,9 @@ def render_species_recent_chart(all_data, start_date, end_date, species):
             line=dict(color="#1a2416", width=2, dash="dot"),
             name="Expected/day",
         )
-    fig.update_layout(height=280, showlegend=True)
+    fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
     return True
 
 
@@ -1955,9 +1976,9 @@ def render_species_mix_period_chart(all_data, start_date, end_date):
         line=dict(color="#1a2416", width=2, dash="dot"),
         name="Median",
     )
-    fig.update_layout(height=280, showlegend=True)
+    fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
     return True
 
 
@@ -2002,12 +2023,11 @@ def render_hourly_activity_chart(all_data, period_data, start_date, end_date, hi
 
     fig.update_layout(
         title="Hourly activity profile",
-        height=280,
         showlegend=True,
         xaxis_title="Hour",
         yaxis_title="Detections",
     )
-    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
     return True
 
 
@@ -2060,10 +2080,10 @@ def render_weather_activity_chart(period_data, weather_daily, weather_metric):
         ),
         secondary_y=True,
     )
-    fig.update_layout(title=f"Detections with {metric_name.lower()}", height=280, legend=dict(x=0.01, y=0.99))
+    fig.update_layout(title=f"Detections with {metric_name.lower()}", legend=dict(x=0.01, y=0.99))
     fig.update_yaxes(title_text="Detections", secondary_y=False)
     fig.update_yaxes(title_text=metric_label, secondary_y=True)
-    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
     return True
 
 
@@ -2106,10 +2126,7 @@ def render_news_insight(insight, all_data=None, period_data=None, start_date=Non
         unsafe_allow_html=True,
     )
     if insight.get("chart") and all_data is not None and period_data is not None:
-        with st.expander("View chart"):
-            rendered = render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily)
-            if not rendered:
-                st.info("No chart is available for this headline in the selected period.")
+        render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily)
 
 
 st.title("🐦 Garden Bird Dashboard")
