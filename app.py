@@ -606,6 +606,405 @@ def to_utc_hour(ts: pd.Series) -> pd.Series:
     return utc_ts.dt.hour + utc_ts.dt.minute / 60.0
 
 
+DAILY_PERIOD_OPTIONS = ["Day", "Last 7 days", "Last 30 days"]
+GARDEN_EVENTS_PATH = pathlib.Path("garden_events.json")
+
+
+def daily_period_bounds(end_date, period_mode):
+    if end_date is None:
+        return None, None
+    if period_mode == "Last 7 days":
+        return end_date - datetime.timedelta(days=6), end_date
+    if period_mode == "Last 30 days":
+        return end_date - datetime.timedelta(days=29), end_date
+    return end_date, end_date
+
+
+def format_period_label(start_date, end_date):
+    if start_date is None or end_date is None:
+        return "No dates available"
+    if start_date == end_date:
+        return end_date.strftime("%A %d %B %Y")
+    if start_date.year == end_date.year:
+        return f"{start_date.strftime('%d %b')} to {end_date.strftime('%d %b %Y')}"
+    return f"{start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
+
+
+def filter_date_window(data, start_date, end_date):
+    if start_date is None or end_date is None or len(data) == 0:
+        return data.iloc[0:0].copy()
+    return data[
+        (data["timestamp"].dt.date >= start_date) &
+        (data["timestamp"].dt.date <= end_date)
+    ].copy()
+
+
+@st.cache_data
+def load_garden_events():
+    try:
+        with open(GARDEN_EVENTS_PATH) as f:
+            events = json.load(f)
+        return events if isinstance(events, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def prepare_news_df(data):
+    news_df = data.dropna(subset=["timestamp"]).copy()
+    if len(news_df) == 0:
+        return news_df
+    news_df["date"] = news_df["timestamp"].dt.date
+    news_df["year"] = news_df["timestamp"].dt.year.astype(int)
+    news_df["month_num"] = news_df["timestamp"].dt.month.astype(int)
+    news_df["doy"] = news_df["timestamp"].dt.dayofyear.astype(int)
+    return news_df
+
+
+def add_insight(insights, priority, category, headline, detail, species=None):
+    insights.append({
+        "priority": priority,
+        "category": category,
+        "headline": headline,
+        "detail": detail,
+        "species": species,
+    })
+
+
+def pct_change(current, baseline):
+    if baseline is None or baseline == 0 or pd.isna(baseline):
+        return None
+    return ((current - baseline) / baseline) * 100
+
+
+def signed_pct_label(value):
+    if value is None or pd.isna(value):
+        return ""
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.0f}%"
+
+
+def period_noun(period_days):
+    if period_days == 1:
+        return "day"
+    return f"{period_days}-day period"
+
+
+def date_label(date_value):
+    if pd.isna(date_value):
+        return "unknown date"
+    if hasattr(date_value, "date"):
+        date_value = date_value.date()
+    return date_value.strftime("%d %b %Y")
+
+
+def doy_label(doy):
+    if pd.isna(doy):
+        return None
+    ref = datetime.date(2000, 1, 1) + datetime.timedelta(days=int(round(doy)) - 1)
+    return f"{ref.day} {ref.strftime('%b')}"
+
+
+def event_species_mask(data, event):
+    names = data["Com_Name"].fillna("").astype(str)
+    names_lower = names.str.lower()
+    mask = pd.Series(False, index=data.index)
+
+    exact_names = {str(s).lower() for s in event.get("species", [])}
+    if exact_names:
+        mask = mask | names_lower.isin(exact_names)
+
+    for term in event.get("match_terms", []):
+        term = str(term).strip().lower()
+        if term:
+            mask = mask | names_lower.str.contains(term, regex=False)
+
+    return mask
+
+
+def matching_events(species, events, trigger=None, months=None):
+    species_lower = str(species).lower()
+    matched = []
+    for event in events:
+        if trigger is not None and event.get("trigger") != trigger:
+            continue
+        event_months = set(event.get("months", []))
+        if months is not None and event_months and not event_months.intersection(months):
+            continue
+
+        exact_names = {str(s).lower() for s in event.get("species", [])}
+        term_match = any(
+            str(term).strip().lower() in species_lower
+            for term in event.get("match_terms", [])
+            if str(term).strip()
+        )
+        if species_lower in exact_names or term_match:
+            matched.append(event)
+    return matched
+
+
+def add_period_record_insights(all_news, current_news, start_date, end_date, insights):
+    if len(all_news) == 0 or len(current_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    noun = period_noun(period_days)
+    current_count = len(current_news)
+    current_species = current_news["Com_Name"].nunique()
+
+    all_dates = pd.date_range(all_news["date"].min(), all_news["date"].max(), freq="D").date
+    daily_counts = all_news.groupby("date").size().reindex(all_dates, fill_value=0)
+    rolling_counts = daily_counts.rolling(period_days, min_periods=period_days).sum().dropna()
+
+    if len(rolling_counts) >= 5:
+        max_count = int(rolling_counts.max())
+        median_count = float(rolling_counts.median())
+        before_current = rolling_counts[rolling_counts.index < end_date]
+        if len(before_current) and current_count >= max_count and current_count > 0:
+            add_insight(
+                insights,
+                95,
+                "Record",
+                f"Busiest {noun} on record",
+                f"{current_count:,} detections, ahead of the previous high of {int(before_current.max()):,}.",
+            )
+        elif median_count > 0:
+            change = pct_change(current_count, median_count)
+            if change is not None and change >= 45 and current_count - median_count >= max(25, median_count * 0.35):
+                add_insight(
+                    insights,
+                    78,
+                    "Activity",
+                    f"Unusually busy {noun}",
+                    f"{current_count:,} detections, {signed_pct_label(change)} vs the typical {noun}.",
+                )
+            elif change is not None and change <= -45 and median_count - current_count >= max(20, median_count * 0.35):
+                add_insight(
+                    insights,
+                    74,
+                    "Activity",
+                    f"Quiet {noun}",
+                    f"{current_count:,} detections, {signed_pct_label(change)} vs the typical {noun}.",
+                )
+
+    if period_days == 1:
+        daily_species = all_news.groupby("date")["Com_Name"].nunique().reindex(all_dates, fill_value=0)
+        if len(daily_species) >= 5 and current_species >= int(daily_species.max()) and current_species > 0:
+            add_insight(
+                insights,
+                86,
+                "Diversity",
+                "Highest species count for a day",
+                f"{current_species:,} species recorded on {date_label(end_date)}.",
+            )
+        elif len(daily_species) >= 5 and daily_species.median() > 0:
+            species_change = pct_change(current_species, daily_species.median())
+            if species_change is not None and species_change >= 45:
+                add_insight(
+                    insights,
+                    68,
+                    "Diversity",
+                    "Species mix was richer than usual",
+                    f"{current_species:,} species, {signed_pct_label(species_change)} vs a typical day.",
+                )
+
+
+def add_arrival_insights(all_news, current_news, start_date, end_date, events, insights):
+    if len(all_news) == 0 or len(current_news) == 0:
+        return
+
+    year = end_date.year
+    year_df = all_news[all_news["year"] == year].copy()
+    if len(year_df) == 0:
+        return
+
+    first_seen = (
+        year_df.groupby("Com_Name")["timestamp"]
+        .min()
+        .reset_index(name="First_Seen")
+    )
+    first_seen["First_Date"] = first_seen["First_Seen"].dt.date
+    arrivals = first_seen[
+        (first_seen["First_Date"] >= start_date) &
+        (first_seen["First_Date"] <= end_date)
+    ].copy()
+
+    if len(arrivals) == 0:
+        return
+
+    prev_firsts = (
+        all_news[all_news["year"] < year]
+        .groupby(["year", "Com_Name"])["timestamp"]
+        .min()
+        .reset_index(name="First_Seen")
+    )
+    if len(prev_firsts):
+        prev_firsts["doy"] = prev_firsts["First_Seen"].dt.dayofyear
+
+    candidate_rows = []
+    months = set(current_news["month_num"].dropna().astype(int).unique().tolist())
+    for _, row in arrivals.iterrows():
+        species = row["Com_Name"]
+        event_matches = matching_events(species, events, trigger="first_seen_year", months=months)
+        if start_date.month == 1 and not event_matches:
+            continue
+
+        detail = f"First detected this year on {date_label(row['First_Date'])}."
+        if len(prev_firsts):
+            species_prev = prev_firsts[prev_firsts["Com_Name"] == species]
+            if len(species_prev):
+                typical = doy_label(species_prev["doy"].median())
+                if typical:
+                    detail = f"First detected this year on {date_label(row['First_Date'])}; typical first date is around {typical}."
+
+        if event_matches:
+            headline = event_matches[0].get("label", f"{species} arrived")
+            priority = 88
+        else:
+            headline = f"{species} first seen this year"
+            priority = 62
+        candidate_rows.append((priority, headline, detail, species))
+
+    for priority, headline, detail, species in sorted(candidate_rows, reverse=True)[:4]:
+        add_insight(insights, priority, "Arrival", headline, detail, species)
+
+
+def add_species_change_insights(all_news, current_news, start_date, end_date, events, insights):
+    if len(all_news) == 0 or len(current_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    months = set(current_news["month_num"].dropna().astype(int).unique().tolist())
+    current_counts = current_news["Com_Name"].value_counts()
+
+    comparison = all_news[
+        ~((all_news["date"] >= start_date) & (all_news["date"] <= end_date)) &
+        (all_news["month_num"].isin(months))
+    ].copy()
+    comparison_days = comparison["date"].nunique()
+    if comparison_days < max(7, period_days):
+        comparison = all_news[
+            ~((all_news["date"] >= start_date) & (all_news["date"] <= end_date))
+        ].copy()
+        comparison_days = comparison["date"].nunique()
+    if comparison_days == 0:
+        return
+
+    baseline_counts = comparison["Com_Name"].value_counts()
+    species = sorted(set(current_counts.index).union(set(baseline_counts.index)))
+
+    spikes = []
+    drops = []
+    for sp in species:
+        expected = (baseline_counts.get(sp, 0) / comparison_days) * period_days
+        current = int(current_counts.get(sp, 0))
+        if expected >= 5 and current >= max(expected * 2.5, expected + 10):
+            event_matches = matching_events(sp, events, trigger="spike", months=months)
+            change = pct_change(current, expected)
+            headline = event_matches[0].get("label", f"{sp} activity spiked") if event_matches else f"{sp} activity spiked"
+            spikes.append((
+                84 if event_matches else 70,
+                headline,
+                f"{current:,} detections vs about {expected:.0f} expected for this period ({signed_pct_label(change)}).",
+                sp,
+            ))
+        elif expected >= 10 and current <= expected * 0.35:
+            event_matches = matching_events(sp, events, trigger="drop_vs_last_year", months=months)
+            change = pct_change(current, expected)
+            headline = event_matches[0].get("label", f"{sp} unusually quiet") if event_matches else f"{sp} unusually quiet"
+            drops.append((
+                82 if event_matches else 68,
+                headline,
+                f"{current:,} detections vs about {expected:.0f} expected for this period ({signed_pct_label(change)}).",
+                sp,
+            ))
+
+    for priority, headline, detail, species_name in sorted(spikes, reverse=True)[:3]:
+        add_insight(insights, priority, "Species", headline, detail, species_name)
+    for priority, headline, detail, species_name in sorted(drops, reverse=True)[:3]:
+        add_insight(insights, priority, "Species", headline, detail, species_name)
+
+
+def add_event_ytd_insights(all_news, end_date, events, insights):
+    if len(all_news) == 0:
+        return
+
+    year = end_date.year
+    prev_year = year - 1
+    year_start = datetime.date(year, 1, 1)
+    prev_start = datetime.date(prev_year, 1, 1)
+
+    try:
+        prev_end = end_date.replace(year=prev_year)
+    except ValueError:
+        prev_end = datetime.date(prev_year, 2, 28)
+
+    for event in events:
+        if event.get("trigger") != "drop_vs_last_year":
+            continue
+
+        current_year = all_news[
+            (all_news["date"] >= year_start) &
+            (all_news["date"] <= end_date)
+        ].copy()
+        prev_year_df = all_news[
+            (all_news["date"] >= prev_start) &
+            (all_news["date"] <= prev_end)
+        ].copy()
+
+        current_count = int(event_species_mask(current_year, event).sum())
+        previous_count = int(event_species_mask(prev_year_df, event).sum())
+        if previous_count < 20:
+            continue
+
+        change = pct_change(current_count, previous_count)
+        if change is not None and change <= -55:
+            add_insight(
+                insights,
+                90,
+                "Garden year",
+                event.get("label", "A regular garden visitor is down"),
+                (
+                    f"{current_count:,} detections so far in {year}, compared with "
+                    f"{previous_count:,} by {date_label(prev_end)} last year ({signed_pct_label(change)})."
+                ),
+            )
+
+
+def build_news_insights(all_data, period_data, start_date, end_date, events):
+    all_news = prepare_news_df(all_data)
+    current_news = prepare_news_df(period_data)
+    insights = []
+
+    if start_date is None or end_date is None:
+        return insights
+    if len(current_news) == 0:
+        return insights
+
+    add_period_record_insights(all_news, current_news, start_date, end_date, insights)
+    add_arrival_insights(all_news, current_news, start_date, end_date, events, insights)
+    add_species_change_insights(all_news, current_news, start_date, end_date, events, insights)
+    add_event_ytd_insights(all_news, end_date, events, insights)
+
+    seen = set()
+    deduped = []
+    for insight in sorted(insights, key=lambda x: x["priority"], reverse=True):
+        key = (insight["category"], insight["headline"], insight.get("species"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(insight)
+    return deduped[:7]
+
+
+def render_news_insight(insight, lead=False):
+    st.caption(insight["category"])
+    if lead:
+        st.markdown(f"### {insight['headline']}")
+    else:
+        st.markdown(f"**{insight['headline']}**")
+    st.write(insight["detail"])
+
+
 st.title("🐦 Garden Bird Dashboard")
 st.caption("Detections across time, seasons, and community composition.")
 
@@ -756,14 +1155,14 @@ if daily_available_dates:
         st.session_state["daily_overview_date"] = _daily_default
     daily_selected_date = st.session_state["daily_overview_date"]
 
-daily_filtered = (
-    daily_base[daily_base["timestamp"].dt.date == daily_selected_date].copy()
-    if daily_selected_date is not None
-    else daily_base.iloc[0:0].copy()
-)
+daily_period_mode = st.session_state.get("daily_period_mode", DAILY_PERIOD_OPTIONS[0])
+if daily_period_mode not in DAILY_PERIOD_OPTIONS:
+    daily_period_mode = DAILY_PERIOD_OPTIONS[0]
+daily_window_start, daily_window_end = daily_period_bounds(daily_selected_date, daily_period_mode)
+daily_period_filtered = filter_date_window(daily_base, daily_window_start, daily_window_end)
 
 # ---- KPI cards ----
-kpi_source = daily_filtered if page == "Daily Overview" else filtered
+kpi_source = daily_period_filtered if page == "Daily Overview" else filtered
 kpi1, kpi2, kpi3 = st.columns(3)
 kpi1.metric("Total Detections",  f"{len(kpi_source):,}")
 kpi2.metric("Unique Species",    f"{kpi_source['Com_Name'].nunique():,}")
@@ -774,14 +1173,23 @@ st.divider()
 
 # ── Daily Overview ──────────────────────────────────────────────────────────
 if page == "Daily Overview":
-    st.subheader("Daily Summary")
+    st.subheader("Garden News Feed")
     st.caption(
-        "This page uses its own day navigation and ignores the sidebar date range, year, season, and month filters."
+        "Headlines are rule-based and use the selected species, status, and confidence filters."
     )
 
     if not daily_available_dates:
         st.info("No dated detections are available for the current species, status, and confidence filters.")
     else:
+        daily_period_mode = st.radio(
+            "Period",
+            DAILY_PERIOD_OPTIONS,
+            horizontal=True,
+            key="daily_period_mode",
+        )
+        daily_window_start, daily_window_end = daily_period_bounds(daily_selected_date, daily_period_mode)
+        daily_period_filtered = filter_date_window(daily_base, daily_window_start, daily_window_end)
+
         current_idx = daily_available_dates.index(daily_selected_date)
 
         nav_l, nav_c, nav_r, nav_m = st.columns([1.2, 3.2, 1.2, 1.4], gap="medium")
@@ -791,7 +1199,7 @@ if page == "Daily Overview":
                 st.rerun()
         with nav_c:
             st.markdown(
-                f"### {daily_selected_date.strftime('%A %d %B %Y')}",
+                f"### {format_period_label(daily_window_start, daily_window_end)}",
             )
         with nav_r:
             if st.button("Next day ▶", use_container_width=True, disabled=current_idx == len(daily_available_dates) - 1):
@@ -802,45 +1210,80 @@ if page == "Daily Overview":
                 st.session_state["daily_overview_date"] = daily_available_dates[-1]
                 st.rerun()
 
-        st.caption(f"{len(daily_available_dates):,} available days in the filtered dataset.")
+        st.caption(
+            f"{len(daily_available_dates):,} available days in the filtered dataset. "
+            f"Viewing {len(daily_period_filtered):,} detections."
+        )
 
-        daily_view = daily_filtered.dropna(subset=["timestamp"]).copy()
+        daily_view = daily_period_filtered.dropna(subset=["timestamp"]).copy()
         daily_view["hour"] = daily_view["timestamp"].dt.hour
 
         if len(daily_view) == 0:
-            st.info("No detections were recorded for this day under the current filters.")
+            st.info("No detections were recorded for this period under the current filters.")
         else:
-            weather_daily_row = None
+            garden_events = load_garden_events()
+            news_insights = build_news_insights(
+                daily_base,
+                daily_view,
+                daily_window_start,
+                daily_window_end,
+                garden_events,
+            )
+
+            st.subheader("Headlines")
+            if news_insights:
+                render_news_insight(news_insights[0], lead=True)
+                if len(news_insights) > 1:
+                    feed_cols = st.columns(2, gap="medium")
+                    for insight_idx, insight in enumerate(news_insights[1:]):
+                        with feed_cols[insight_idx % 2]:
+                            render_news_insight(insight)
+            else:
+                st.info("No major changes detected for this period.")
+
+            st.divider()
+            st.subheader("Drill-down")
+
+            weather_daily = None
             if {"Lat", "Lon"}.issubset(daily_view.columns) and daily_view["Lat"].notna().any() and daily_view["Lon"].notna().any():
                 w_lat = float(daily_view["Lat"].mode().iloc[0])
                 w_lon = float(daily_view["Lon"].mode().iloc[0])
-                _, daily_weather = fetch_weather(
+                _, weather_daily = fetch_weather(
                     w_lat, w_lon,
-                    daily_selected_date.strftime("%Y-%m-%d"),
-                    daily_selected_date.strftime("%Y-%m-%d"),
+                    daily_window_start.strftime("%Y-%m-%d"),
+                    daily_window_end.strftime("%Y-%m-%d"),
                 )
-                if daily_weather is not None and len(daily_weather):
-                    weather_match = daily_weather[daily_weather["date"] == daily_selected_date]
-                    if len(weather_match):
-                        weather_daily_row = weather_match.iloc[0]
 
             st.subheader("Weather Summary")
-            if weather_daily_row is None:
-                st.info("No weather summary is available for this day.")
+            if weather_daily is None or len(weather_daily) == 0:
+                st.info("No weather summary is available for this period.")
+            elif daily_window_start == daily_window_end:
+                weather_match = weather_daily[weather_daily["date"] == daily_window_end]
+                weather_daily_row = weather_match.iloc[0] if len(weather_match) else None
+                if weather_daily_row is None:
+                    st.info("No weather summary is available for this day.")
+                else:
+                    wx1, wx2, wx3 = st.columns(3)
+                    wx1.metric("Max Temp", f"{weather_daily_row['temp_max']:.1f}°C")
+                    wx2.metric("Min Temp", f"{weather_daily_row['temp_min']:.1f}°C")
+                    wx3.metric("Rainfall", f"{weather_daily_row['precip_sum']:.1f} mm")
+                    wx4, wx5 = st.columns(2)
+                    wx4.metric("Max Wind", f"{weather_daily_row['wind_max']:.1f} km/h")
+                    wx5.metric(
+                        "Daylight",
+                        (
+                            f"{weather_daily_row['sunrise'].strftime('%H:%M')} to "
+                            f"{weather_daily_row['sunset'].strftime('%H:%M')}"
+                        ),
+                    )
             else:
                 wx1, wx2, wx3 = st.columns(3)
-                wx1.metric("Max Temp", f"{weather_daily_row['temp_max']:.1f}°C")
-                wx2.metric("Min Temp", f"{weather_daily_row['temp_min']:.1f}°C")
-                wx3.metric("Rainfall", f"{weather_daily_row['precip_sum']:.1f} mm")
+                wx1.metric("Avg Max Temp", f"{weather_daily['temp_max'].mean():.1f}°C")
+                wx2.metric("Avg Min Temp", f"{weather_daily['temp_min'].mean():.1f}°C")
+                wx3.metric("Total Rainfall", f"{weather_daily['precip_sum'].sum():.1f} mm")
                 wx4, wx5 = st.columns(2)
-                wx4.metric("Max Wind", f"{weather_daily_row['wind_max']:.1f} km/h")
-                wx5.metric(
-                    "Daylight",
-                    (
-                        f"{weather_daily_row['sunrise'].strftime('%H:%M')} to "
-                        f"{weather_daily_row['sunset'].strftime('%H:%M')}"
-                    ),
-                )
+                wx4.metric("Peak Wind", f"{weather_daily['wind_max'].max():.1f} km/h")
+                wx5.metric("Weather Days", f"{len(weather_daily):,}")
 
             species_order = daily_view["Com_Name"].value_counts().index.tolist()
             species_color_map = {
@@ -972,7 +1415,11 @@ if page == "Daily Overview":
                 color="UK_Status",
                 color_discrete_map=gantt_cmap,
                 hover_data={"Detections": True, "UK_Status": True},
-                title="First and Last Appearance by Species",
+                title=(
+                    "First and Last Appearance by Species"
+                    if daily_window_start == daily_window_end
+                    else "First and Last Detection by Species"
+                ),
                 labels={"Species": "", "UK_Status": "UK Status"},
             )
             for trace in fig.data:
@@ -986,8 +1433,21 @@ if page == "Daily Overview":
                         "Detections: %{customdata[2]}"
                         "<extra>%{fullData.name}</extra>"
                     )
-            day_start = pd.Timestamp.combine(daily_selected_date, datetime.time(0, 0))
-            day_end = day_start + pd.Timedelta(hours=24)
+            timeline_start = pd.Timestamp.combine(daily_window_start, datetime.time(0, 0))
+            timeline_end = pd.Timestamp.combine(daily_window_end, datetime.time(0, 0)) + pd.Timedelta(days=1)
+            timeline_axis = (
+                dict(
+                    range=[timeline_start, timeline_end],
+                    dtick=3600000,
+                    tickformat="%H:%M",
+                )
+                if daily_window_start == daily_window_end
+                else dict(
+                    range=[timeline_start, timeline_end],
+                    dtick=86400000,
+                    tickformat="%d %b",
+                )
+            )
             fig.update_yaxes(
                 categoryorder="array",
                 categoryarray=list(reversed(species_windows["Species"].tolist())),
@@ -996,11 +1456,7 @@ if page == "Daily Overview":
                 height=max(500, len(species_windows) * 24),
                 xaxis_title="Time of day",
                 yaxis_title="",
-                xaxis=dict(
-                    range=[day_start, day_end],
-                    dtick=3600000,
-                    tickformat="%H:%M",
-                ),
+                xaxis=timeline_axis,
             )
             st.plotly_chart(style_fig(fig), use_container_width=True)
 

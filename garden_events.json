@@ -1,0 +1,25 @@
+[
+  {
+    "id": "starling_cacophony",
+    "label": "Annual starling cacophony",
+    "species": ["Common Starling", "Starling"],
+    "match_terms": ["starling"],
+    "months": [5, 6, 7],
+    "trigger": "spike"
+  },
+  {
+    "id": "swift_arrival",
+    "label": "Arrival of swifts",
+    "species": ["Common Swift", "Swift"],
+    "match_terms": ["swift"],
+    "months": [4, 5, 6, 7],
+    "trigger": "first_seen_year"
+  },
+  {
+    "id": "magpie_missing",
+    "label": "Magpies unusually quiet",
+    "species": ["Eurasian Magpie", "Magpie"],
+    "match_terms": ["magpie"],
+    "trigger": "drop_vs_last_year"
+  }
+]
