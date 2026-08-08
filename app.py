@@ -204,59 +204,33 @@ st.markdown("""
     --news-accent: var(--accent);
     background: #ffffff !important;
     border: 1px solid rgba(26,36,22,0.12) !important;
-    border-left: 7px solid var(--news-accent) !important;
+    border-left: 5px solid var(--news-accent) !important;
     border-radius: 8px !important;
-    box-shadow: 0 6px 24px rgba(26,36,22,0.08) !important;
-    padding: 18px 22px 17px 22px !important;
-    margin: 0 0 14px 0 !important;
-  }
-  .news-card--lead {
-    background: linear-gradient(90deg, rgba(61,107,68,0.10), #ffffff 48%) !important;
-    border-left-width: 9px !important;
-    padding: 24px 28px 23px 28px !important;
-    margin-bottom: 18px !important;
-  }
-  .news-category {
-    display: inline-flex !important;
-    align-items: center !important;
-    color: var(--news-accent) !important;
-    font-size: 0.72rem !important;
-    font-weight: 800 !important;
-    letter-spacing: 0 !important;
-    line-height: 1 !important;
-    margin-bottom: 10px !important;
-    text-transform: uppercase !important;
+    box-shadow: 0 3px 14px rgba(26,36,22,0.06) !important;
+    display: grid !important;
+    grid-template-columns: minmax(240px, 0.42fr) minmax(320px, 1fr) !important;
+    gap: 18px !important;
+    align-items: baseline !important;
+    padding: 12px 16px !important;
+    margin: 0 0 8px 0 !important;
   }
   .news-headline {
     color: var(--text) !important;
-    font-size: 1.22rem !important;
+    font-size: 1.06rem !important;
     font-weight: 800 !important;
-    line-height: 1.25 !important;
-    margin-bottom: 8px !important;
-  }
-  .news-card--lead .news-headline {
-    font-size: 1.85rem !important;
-    line-height: 1.17 !important;
+    line-height: 1.3 !important;
   }
   .news-detail {
     color: var(--muted) !important;
-    font-size: 1rem !important;
+    font-size: 0.98rem !important;
     font-weight: 500 !important;
-    line-height: 1.45 !important;
-  }
-  .news-card--lead .news-detail {
-    color: var(--text) !important;
-    font-size: 1.08rem !important;
+    line-height: 1.35 !important;
   }
   @media (max-width: 700px) {
     .news-card {
+      grid-template-columns: 1fr !important;
+      gap: 5px !important;
       padding: 15px 16px 14px 16px !important;
-    }
-    .news-card--lead {
-      padding: 19px 18px 18px 18px !important;
-    }
-    .news-card--lead .news-headline {
-      font-size: 1.38rem !important;
     }
     .news-headline {
       font-size: 1.08rem !important;
@@ -1781,16 +1755,13 @@ def select_visible_news_insights(news_insights, limit=VISIBLE_HEADLINE_LIMIT):
     return selected
 
 
-def render_news_insight(insight, lead=False):
-    category = html.escape(str(insight["category"]))
+def render_news_insight(insight):
     headline = html.escape(str(insight["headline"]))
     detail = html.escape(str(insight["detail"]))
     accent = NEWS_CATEGORY_COLORS.get(insight["category"], PRIMARY)
-    card_class = "news-card news-card--lead" if lead else "news-card"
     st.markdown(
         f"""
-<div class="{card_class}" style="--news-accent: {accent};">
-  <div class="news-category">{category}</div>
+<div class="news-card" style="--news-accent: {accent};">
   <div class="news-headline">{headline}</div>
   <div class="news-detail">{detail}</div>
 </div>
@@ -2039,8 +2010,7 @@ if page == "Daily Overview":
             visible_news_insights = select_visible_news_insights(news_insights)
             visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
-                render_news_insight(visible_news_insights[0], lead=True)
-                for insight in visible_news_insights[1:]:
+                for insight in visible_news_insights:
                     render_news_insight(insight)
             else:
                 st.info("No major changes detected for this period.")
@@ -2053,7 +2023,6 @@ if page == "Daily Overview":
                 with st.expander("Explore more headlines"):
                     insight_rows = [
                         {
-                            "Category": insight["category"],
                             "Headline": insight["headline"],
                             "Detail": insight["detail"],
                         }
