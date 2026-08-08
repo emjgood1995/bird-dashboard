@@ -607,6 +607,7 @@ def to_utc_hour(ts: pd.Series) -> pd.Series:
 
 
 DAILY_PERIOD_OPTIONS = ["Day", "Last 7 days", "Last 30 days"]
+VISIBLE_HEADLINE_LIMIT = 10
 GARDEN_EVENTS_PATH = pathlib.Path("garden_events.json")
 
 
@@ -669,6 +670,10 @@ def add_insight(insights, priority, category, headline, detail, species=None):
         "detail": detail,
         "species": species,
     })
+
+
+def insight_key(insight):
+    return (insight["category"], insight["headline"], insight.get("species"))
 
 
 def pct_change(current, baseline):
@@ -1657,12 +1662,41 @@ def build_news_insights(all_data, period_data, start_date, end_date, events, wea
     seen = set()
     deduped = []
     for insight in sorted(insights, key=lambda x: x["priority"], reverse=True):
-        key = (insight["category"], insight["headline"], insight.get("species"))
+        key = insight_key(insight)
         if key in seen:
             continue
         seen.add(key)
         deduped.append(insight)
     return deduped
+
+
+def select_visible_news_insights(news_insights, limit=VISIBLE_HEADLINE_LIMIT):
+    if len(news_insights) <= limit:
+        return news_insights
+
+    selected = news_insights[:limit]
+
+    for candidate in news_insights[limit:]:
+        category = candidate["category"]
+        visible_categories = {insight["category"] for insight in selected}
+        if category in visible_categories:
+            continue
+
+        category_counts = pd.Series([insight["category"] for insight in selected]).value_counts().to_dict()
+        replace_idx = None
+        for idx in range(len(selected) - 1, -1, -1):
+            selected_category = selected[idx]["category"]
+            if category_counts.get(selected_category, 0) > 1:
+                replace_idx = idx
+                break
+
+        if replace_idx is None:
+            selected.append(candidate)
+        else:
+            selected[replace_idx] = candidate
+
+    selected = sorted(selected, key=lambda insight: news_insights.index(insight))
+    return selected
 
 
 def render_news_insight(insight, lead=False):
@@ -1911,7 +1945,8 @@ if page == "Daily Overview":
             )
 
             st.subheader("Headlines")
-            visible_news_insights = news_insights[:10]
+            visible_news_insights = select_visible_news_insights(news_insights)
+            visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
                 render_news_insight(visible_news_insights[0], lead=True)
                 if len(visible_news_insights) > 1:
@@ -1926,16 +1961,17 @@ if page == "Daily Overview":
                 if news_insights:
                     insight_rows = []
                     for insight_idx, insight in enumerate(news_insights, start=1):
+                        visible = insight_key(insight) in visible_news_keys
                         insight_rows.append({
                             "Rank": insight_idx,
-                            "Shown": "Yes" if insight_idx <= 10 else "Hidden",
+                            "Shown": "Yes" if visible else "Hidden",
                             "Priority": insight["priority"],
                             "Category": insight["category"],
                             "Headline": insight["headline"],
                             "Detail": insight["detail"],
                         })
                     st.caption(
-                        "Candidates are sorted by priority. The page shows the top 10; lower-ranked candidates are hidden here."
+                        "Candidates are sorted by priority. The page starts with the top 10, swaps lower-priority duplicate categories where possible, and adds any remaining category representatives so each generated category can appear."
                     )
                     st.dataframe(pd.DataFrame(insight_rows), hide_index=True, use_container_width=True)
                 else:
