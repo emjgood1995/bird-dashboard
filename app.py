@@ -1957,25 +1957,21 @@ if page == "Daily Overview":
             else:
                 st.info("No major changes detected for this period.")
 
-            with st.expander("Why these headlines?"):
-                if news_insights:
-                    insight_rows = []
-                    for insight_idx, insight in enumerate(news_insights, start=1):
-                        visible = insight_key(insight) in visible_news_keys
-                        insight_rows.append({
-                            "Rank": insight_idx,
-                            "Shown": "Yes" if visible else "Hidden",
-                            "Priority": insight["priority"],
+            hidden_news_insights = [
+                insight for insight in news_insights
+                if insight_key(insight) not in visible_news_keys
+            ]
+            if hidden_news_insights:
+                with st.expander("Explore more headlines"):
+                    insight_rows = [
+                        {
                             "Category": insight["category"],
                             "Headline": insight["headline"],
                             "Detail": insight["detail"],
-                        })
-                    st.caption(
-                        "Candidates are sorted by priority. The page starts with the top 10, swaps lower-priority duplicate categories where possible, and adds any remaining category representatives so each generated category can appear."
-                    )
+                        }
+                        for insight in hidden_news_insights
+                    ]
                     st.dataframe(pd.DataFrame(insight_rows), hide_index=True, use_container_width=True)
-                else:
-                    st.write("No headline rules fired for this period under the current filters.")
 
             st.divider()
             st.subheader("Drill-down")
