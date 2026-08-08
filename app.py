@@ -654,6 +654,7 @@ def prepare_news_df(data):
     if len(news_df) == 0:
         return news_df
     news_df["date"] = news_df["timestamp"].dt.date
+    news_df["hour"] = news_df["timestamp"].dt.hour.astype(int)
     news_df["year"] = news_df["timestamp"].dt.year.astype(int)
     news_df["month_num"] = news_df["timestamp"].dt.month.astype(int)
     news_df["doy"] = news_df["timestamp"].dt.dayofyear.astype(int)
@@ -687,6 +688,16 @@ def period_noun(period_days):
     if period_days == 1:
         return "day"
     return f"{period_days}-day period"
+
+
+def news_season_from_month(month):
+    if month in (3, 4, 5):
+        return "Spring"
+    if month in (6, 7, 8):
+        return "Summer"
+    if month in (9, 10, 11):
+        return "Autumn"
+    return "Winter"
 
 
 def date_label(date_value):
@@ -740,6 +751,104 @@ def matching_events(species, events, trigger=None, months=None):
         if species_lower in exact_names or term_match:
             matched.append(event)
     return matched
+
+
+def comparison_window(all_news, current_news, start_date, end_date, prefer_same_month=True):
+    if len(all_news) == 0:
+        return all_news.iloc[0:0].copy()
+
+    period_days = (end_date - start_date).days + 1
+    not_current = ~((all_news["date"] >= start_date) & (all_news["date"] <= end_date))
+    comparison = all_news[not_current].copy()
+
+    if prefer_same_month and len(current_news):
+        months = set(current_news["month_num"].dropna().astype(int).unique().tolist())
+        same_month = comparison[comparison["month_num"].isin(months)].copy()
+        if same_month["date"].nunique() >= max(7, period_days):
+            return same_month
+
+    return comparison
+
+
+def expected_count_for_period(all_news, current_news, start_date, end_date, filter_mask=None):
+    period_days = (end_date - start_date).days + 1
+    comp = comparison_window(all_news, current_news, start_date, end_date)
+    if filter_mask is not None and len(comp):
+        comp = comp[filter_mask(comp)].copy()
+    comp_days = comp["date"].nunique()
+    if comp_days == 0:
+        return None
+    return (len(comp) / comp_days) * period_days
+
+
+def decimal_hour(ts):
+    return ts.dt.hour + ts.dt.minute / 60.0
+
+
+def hour_text(hour_value):
+    hour_int = int(hour_value)
+    minute_int = int(round((hour_value - hour_int) * 60))
+    if minute_int == 60:
+        hour_int += 1
+        minute_int = 0
+    return f"{hour_int:02d}:{minute_int:02d}"
+
+
+def minutes_text(minutes):
+    minutes = int(round(abs(minutes)))
+    if minutes < 60:
+        return f"{minutes} minutes"
+    hours = minutes // 60
+    remainder = minutes % 60
+    if remainder == 0:
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{hours}h {remainder}m"
+
+
+def longest_date_streak(dates):
+    unique_days = sorted(set(dates))
+    if not unique_days:
+        return 0
+    best = 1
+    current = 1
+    for i in range(1, len(unique_days)):
+        if (unique_days[i] - unique_days[i - 1]).days == 1:
+            current += 1
+            best = max(best, current)
+        else:
+            current = 1
+    return best
+
+
+def streak_ending_at(dates, end_date):
+    unique_days = sorted(set(d for d in dates if d <= end_date))
+    if not unique_days or unique_days[-1] != end_date:
+        return 0
+    streak = 1
+    for i in range(len(unique_days) - 1, 0, -1):
+        if (unique_days[i] - unique_days[i - 1]).days == 1:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def daily_species_sets(data):
+    if len(data) == 0:
+        return {}
+    return data.groupby("date")["Com_Name"].apply(lambda x: frozenset(x.dropna().astype(str))).to_dict()
+
+
+def species_mix_similarity(current_counts, comparison_counts):
+    species = sorted(set(current_counts.index).union(set(comparison_counts.index)))
+    if not species:
+        return 0
+    current_vec = np.array([current_counts.get(sp, 0) for sp in species], dtype=float)
+    comparison_vec = np.array([comparison_counts.get(sp, 0) for sp in species], dtype=float)
+    denom = np.linalg.norm(current_vec) * np.linalg.norm(comparison_vec)
+    if denom == 0:
+        return 0
+    return float(np.dot(current_vec, comparison_vec) / denom)
 
 
 def add_period_record_insights(all_news, current_news, start_date, end_date, insights):
@@ -849,14 +958,28 @@ def add_arrival_insights(all_news, current_news, start_date, end_date, events, i
             continue
 
         detail = f"First detected this year on {date_label(row['First_Date'])}."
+        timing_shift = None
         if len(prev_firsts):
             species_prev = prev_firsts[prev_firsts["Com_Name"] == species]
             if len(species_prev):
-                typical = doy_label(species_prev["doy"].median())
+                typical_doy = species_prev["doy"].median()
+                typical = doy_label(typical_doy)
                 if typical:
                     detail = f"First detected this year on {date_label(row['First_Date'])}; typical first date is around {typical}."
+                current_doy = int(row["First_Seen"].dayofyear)
+                diff_days = current_doy - typical_doy
+                if abs(diff_days) >= 10:
+                    timing_shift = int(round(diff_days))
 
-        if event_matches:
+        if timing_shift is not None:
+            direction = "later" if timing_shift > 0 else "earlier"
+            days = abs(timing_shift)
+            if event_matches:
+                headline = f"{event_matches[0].get('label', species)} is {days} days {direction} than usual"
+            else:
+                headline = f"{species} arrived {days} days {direction} than usual"
+            priority = 91 if event_matches else 78
+        elif event_matches:
             headline = event_matches[0].get("label", f"{species} arrived")
             priority = 88
         else:
@@ -970,7 +1093,544 @@ def add_event_ytd_insights(all_news, end_date, events, insights):
             )
 
 
-def build_news_insights(all_data, period_data, start_date, end_date, events):
+def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weather_daily, insights):
+    if len(all_news) == 0 or len(current_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    dawn = current_news[(current_news["hour"] >= 3) & (current_news["hour"] <= 10)].copy()
+    if len(dawn) == 0:
+        return
+
+    comp = comparison_window(all_news, current_news, start_date, end_date)
+    comp_dawn = comp[(comp["hour"] >= 3) & (comp["hour"] <= 10)].copy()
+    comp_days = comp["date"].nunique()
+    expected = (len(comp_dawn) / comp_days) * period_days if comp_days else None
+
+    if expected is not None and expected >= 5:
+        change = pct_change(len(dawn), expected)
+        if len(dawn) >= max(expected * 1.8, expected + 15):
+            add_insight(
+                insights,
+                76,
+                "Dawn chorus",
+                "Dawn chorus was busier than usual",
+                f"{len(dawn):,} detections between 03:00 and 10:00, {signed_pct_label(change)} vs expected.",
+            )
+        elif len(dawn) <= expected * 0.45:
+            add_insight(
+                insights,
+                70,
+                "Dawn chorus",
+                "Dawn chorus was unusually quiet",
+                f"{len(dawn):,} detections between 03:00 and 10:00, {signed_pct_label(change)} vs expected.",
+            )
+
+    top_dawn = dawn["Com_Name"].value_counts()
+    if len(top_dawn):
+        top_species = top_dawn.index[0]
+        top_count = int(top_dawn.iloc[0])
+        top_share = top_count / len(dawn)
+        if top_count >= 10 and top_share >= 0.45:
+            add_insight(
+                insights,
+                73,
+                "Dawn chorus",
+                f"{top_species} dominated the dawn window",
+                f"{top_count:,} of {len(dawn):,} dawn detections ({top_share:.0%}) were {top_species}.",
+                top_species,
+            )
+
+    if period_days == 1 and len(comp_dawn):
+        current_first = decimal_hour(dawn["timestamp"]).min()
+        comp_first = comp_dawn.groupby("date")["timestamp"].min()
+        if len(comp_first) >= 7:
+            typical_first = decimal_hour(comp_first).median()
+            diff_minutes = (current_first - typical_first) * 60
+            if diff_minutes <= -30:
+                add_insight(
+                    insights,
+                    80,
+                    "Dawn chorus",
+                    "Dawn chorus started earlier than usual",
+                    f"First dawn detection was at {hour_text(current_first)}, {minutes_text(diff_minutes)} earlier than typical.",
+                )
+            elif diff_minutes >= 45:
+                add_insight(
+                    insights,
+                    72,
+                    "Dawn chorus",
+                    "Dawn chorus started later than usual",
+                    f"First dawn detection was at {hour_text(current_first)}, {minutes_text(diff_minutes)} later than typical.",
+                )
+
+        if weather_daily is not None and len(weather_daily):
+            weather_match = weather_daily[weather_daily["date"] == end_date]
+            if len(weather_match) and pd.notna(weather_match.iloc[0].get("sunrise")):
+                sunrise = weather_match.iloc[0]["sunrise"]
+                sunrise_hour = sunrise.hour + sunrise.minute / 60.0
+                if current_first <= sunrise_hour - 0.5:
+                    add_insight(
+                        insights,
+                        58,
+                        "Dawn chorus",
+                        "First detection came well before sunrise",
+                        f"First dawn detection was at {hour_text(current_first)}; sunrise was around {hour_text(sunrise_hour)}.",
+                    )
+
+
+def add_expected_arrival_insights(all_news, current_news, start_date, end_date, insights):
+    if len(all_news) == 0:
+        return
+
+    year = end_date.year
+    current_year = all_news[
+        (all_news["year"] == year) &
+        (all_news["date"] <= end_date)
+    ].copy()
+    previous_years = all_news[all_news["year"] < year].copy()
+    if len(previous_years) == 0:
+        return
+
+    prev_firsts = (
+        previous_years.groupby(["year", "Com_Name"])["timestamp"]
+        .min()
+        .reset_index(name="First_Seen")
+    )
+    if len(prev_firsts) == 0:
+        return
+
+    prev_firsts["doy"] = prev_firsts["First_Seen"].dt.dayofyear
+    prev_counts = previous_years["Com_Name"].value_counts()
+    current_seen = set(current_year["Com_Name"].dropna().unique())
+    current_doy = end_date.timetuple().tm_yday
+
+    expected = (
+        prev_firsts.groupby("Com_Name")
+        .agg(years_seen=("year", "nunique"), median_doy=("doy", "median"))
+        .reset_index()
+    )
+    expected["prev_count"] = expected["Com_Name"].map(prev_counts).fillna(0)
+    expected = expected[
+        (expected["years_seen"] >= 2) &
+        (expected["prev_count"] >= 10) &
+        (expected["median_doy"] <= current_doy - 14) &
+        (~expected["Com_Name"].isin(current_seen))
+    ].copy()
+
+    if len(expected) == 0:
+        return
+
+    expected["days_late"] = current_doy - expected["median_doy"]
+    expected = expected.sort_values(["years_seen", "days_late", "prev_count"], ascending=False).head(3)
+    for _, row in expected.iterrows():
+        species = row["Com_Name"]
+        add_insight(
+            insights,
+            67,
+            "Seasonal timing",
+            f"{species} has not appeared yet this year",
+            f"Usually first detected around {doy_label(row['median_doy'])}; currently about {int(row['days_late'])} days later than that.",
+            species,
+        )
+
+
+def add_absence_comeback_insights(all_news, current_news, start_date, end_date, insights):
+    if len(all_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    current_counts = current_news["Com_Name"].value_counts()
+    before = all_news[all_news["date"] < start_date].copy()
+
+    comebacks = []
+    for species, count in current_counts.items():
+        species_before = before[before["Com_Name"] == species]
+        if len(species_before) == 0:
+            continue
+        last_before = species_before["date"].max()
+        gap_days = (start_date - last_before).days - 1
+        if gap_days >= max(7, period_days * 2) and count >= 2:
+            comebacks.append((gap_days, int(count), species))
+
+    for gap_days, count, species in sorted(comebacks, reverse=True)[:3]:
+        add_insight(
+            insights,
+            75,
+            "Comeback",
+            f"{species} returned after a quiet spell",
+            f"{count:,} detections after {gap_days} days without a detection.",
+            species,
+        )
+
+    lookback_days = max(30, period_days * 3)
+    recent_start = start_date - datetime.timedelta(days=lookback_days)
+    recent = all_news[(all_news["date"] >= recent_start) & (all_news["date"] < start_date)].copy()
+    if len(recent) == 0:
+        return
+
+    recent_counts = recent["Com_Name"].value_counts()
+    absences = []
+    for species, recent_count in recent_counts.items():
+        if species in current_counts:
+            continue
+        expected = (recent_count / max(recent["date"].nunique(), 1)) * period_days
+        if recent_count >= 15 and expected >= 5:
+            absences.append((expected, int(recent_count), species))
+
+    for expected, recent_count, species in sorted(absences, reverse=True)[:3]:
+        add_insight(
+            insights,
+            71,
+            "Absence",
+            f"No {species} detections in this period",
+            f"{recent_count:,} detections in the previous {lookback_days} days, but none in the selected period.",
+            species,
+        )
+
+
+def add_community_mix_insights(all_news, current_news, start_date, end_date, insights):
+    if len(current_news) == 0:
+        return
+
+    total = len(current_news)
+    species_counts = current_news["Com_Name"].value_counts()
+    if len(species_counts) == 0:
+        return
+
+    top_species = species_counts.index[0]
+    top_count = int(species_counts.iloc[0])
+    top_share = top_count / total
+    if total >= 20 and top_share >= 0.50:
+        add_insight(
+            insights,
+            74,
+            "Community mix",
+            f"{top_species} dominated the soundscape",
+            f"{top_count:,} of {total:,} detections ({top_share:.0%}) were {top_species}.",
+            top_species,
+        )
+
+    if "Diet" in current_news.columns:
+        diet_counts = current_news[current_news["Diet"] != "Unclassified"]["Diet"].value_counts()
+        if len(diet_counts):
+            top_diet = diet_counts.index[0]
+            diet_share = diet_counts.iloc[0] / max(diet_counts.sum(), 1)
+            if diet_counts.iloc[0] >= 20 and diet_share >= 0.60:
+                add_insight(
+                    insights,
+                    60,
+                    "Community mix",
+                    f"{top_diet}s dominated detections",
+                    f"{diet_share:.0%} of classified detections were {str(top_diet).lower()} species.",
+                )
+
+    historical = all_news[
+        ~((all_news["date"] >= start_date) & (all_news["date"] <= end_date))
+    ].copy()
+    if total >= 25 and len(historical):
+        current_season = news_season_from_month(end_date.month)
+        current_counts = current_news["Com_Name"].value_counts()
+        season_scores = []
+        for season in ["Spring", "Summer", "Autumn", "Winter"]:
+            season_data = historical[historical["month_num"].apply(news_season_from_month) == season]
+            if season_data["date"].nunique() < 7:
+                continue
+            score = species_mix_similarity(current_counts, season_data["Com_Name"].value_counts())
+            season_scores.append((score, season))
+
+        if len(season_scores) >= 2:
+            season_scores = sorted(season_scores, reverse=True)
+            best_score, best_season = season_scores[0]
+            current_score = next((score for score, season in season_scores if season == current_season), 0)
+            if best_season != current_season and best_score >= 0.55 and best_score >= current_score + 0.12:
+                add_insight(
+                    insights,
+                    59,
+                    "Community mix",
+                    f"Species mix looked more like {best_season.lower()}",
+                    f"The current species mix matched historic {best_season.lower()} patterns more closely than {current_season.lower()}.",
+                )
+
+    period_days = (end_date - start_date).days + 1
+    all_dates = pd.date_range(all_news["date"].min(), all_news["date"].max(), freq="D").date
+    species_by_date = all_news.groupby("date")["Com_Name"].apply(lambda x: set(x.dropna())).to_dict()
+    rolling_species = []
+    for idx, day in enumerate(all_dates):
+        if idx + 1 < period_days:
+            continue
+        window_species = set()
+        for window_day in all_dates[idx + 1 - period_days:idx + 1]:
+            window_species.update(species_by_date.get(window_day, set()))
+        rolling_species.append({"date": day, "species_count": len(window_species)})
+
+    rolling_df = pd.DataFrame(rolling_species)
+    if len(rolling_df) >= 5:
+        current_species = current_news["Com_Name"].nunique()
+        before_current = rolling_df[rolling_df["date"] < end_date]
+        median_species = rolling_df["species_count"].median()
+        if len(before_current) and current_species >= before_current["species_count"].max() and current_species > 0:
+            add_insight(
+                insights,
+                83,
+                "Community mix",
+                f"Richest species mix for a {period_noun(period_days)}",
+                f"{current_species:,} species detected in the selected period.",
+            )
+        elif median_species > 0:
+            change = pct_change(current_species, median_species)
+            if change is not None and change <= -35:
+                add_insight(
+                    insights,
+                    65,
+                    "Community mix",
+                    "Species mix was narrower than usual",
+                    f"{current_species:,} species, {signed_pct_label(change)} vs the typical {period_noun(period_days)}.",
+                )
+
+
+def add_time_of_day_insights(all_news, current_news, start_date, end_date, insights):
+    if len(current_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    total = len(current_news)
+    early_count = len(current_news[current_news["hour"] < 7])
+    if total >= 20 and early_count / total >= 0.50:
+        add_insight(
+            insights,
+            68,
+            "Time of day",
+            "Most activity happened before 7am",
+            f"{early_count:,} of {total:,} detections ({early_count / total:.0%}) were before 07:00.",
+        )
+
+    hour_counts = current_news["hour"].value_counts()
+    if len(hour_counts):
+        peak_hour = int(hour_counts.index[0])
+        peak_count = int(hour_counts.iloc[0])
+        peak_share = peak_count / total
+        if total >= 25 and peak_share >= 0.35:
+            add_insight(
+                insights,
+                69,
+                "Time of day",
+                "Activity concentrated into one noisy hour",
+                f"{peak_count:,} detections ({peak_share:.0%}) came during {peak_hour:02d}:00-{(peak_hour + 1) % 24:02d}:00.",
+            )
+
+    comp = comparison_window(all_news, current_news, start_date, end_date)
+    comp_days = comp["date"].nunique()
+    if comp_days == 0:
+        return
+
+    for label, mask_fn, priority in [
+        ("evening", lambda data: (data["hour"] >= 17) & (data["hour"] < 22), 66),
+        ("night", lambda data: (data["hour"] >= 22) | (data["hour"] < 5), 64),
+    ]:
+        current_count = int(mask_fn(current_news).sum())
+        expected = (int(mask_fn(comp).sum()) / comp_days) * period_days
+        if expected >= 5 and current_count >= max(expected * 2.0, expected + 10):
+            add_insight(
+                insights,
+                priority,
+                "Time of day",
+                f"Unusual {label} activity",
+                f"{current_count:,} {label} detections vs about {expected:.0f} expected.",
+            )
+
+
+def add_weather_insights(all_news, current_news, start_date, end_date, weather_daily, insights):
+    if weather_daily is None or len(weather_daily) == 0 or len(current_news) == 0:
+        return
+
+    period_days = (end_date - start_date).days + 1
+    typical = expected_count_for_period(all_news, current_news, start_date, end_date)
+    current_total = len(current_news)
+    rain_total = weather_daily["precip_sum"].sum()
+    peak_wind = weather_daily["wind_max"].max()
+
+    if typical is not None and typical > 0:
+        activity_change = pct_change(current_total, typical)
+        if rain_total >= max(5.0, period_days * 1.5) and current_total >= typical * 1.25:
+            add_insight(
+                insights,
+                67,
+                "Weather",
+                "Rain did not dampen activity",
+                f"{rain_total:.1f} mm of rain, but detections were {signed_pct_label(activity_change)} vs expected.",
+            )
+        if peak_wind >= 35 and current_total <= typical * 0.75:
+            add_insight(
+                insights,
+                67,
+                "Weather",
+                "Strong wind coincided with quieter activity",
+                f"Peak wind was {peak_wind:.1f} km/h and detections were {signed_pct_label(activity_change)} vs expected.",
+            )
+
+    if period_days >= 3:
+        daily_activity = (
+            current_news.groupby("date")
+            .agg(det_count=("Com_Name", "size"), species_count=("Com_Name", "nunique"))
+            .reset_index()
+        )
+        merged = daily_activity.merge(weather_daily, on="date", how="inner")
+        if len(merged) >= 3:
+            warmest = merged.loc[merged["temp_max"].idxmax()]
+            if warmest["species_count"] == merged["species_count"].max() and warmest["species_count"] >= merged["species_count"].median() + 2:
+                add_insight(
+                    insights,
+                    61,
+                    "Weather",
+                    "Warmest day had the richest species mix",
+                    f"{date_label(warmest['date'])}: {warmest['temp_max']:.1f}C max and {int(warmest['species_count'])} species.",
+                )
+            wettest = merged.loc[merged["precip_sum"].idxmax()]
+            if wettest["precip_sum"] >= 3 and wettest["det_count"] <= merged["det_count"].median() * 0.6:
+                add_insight(
+                    insights,
+                    58,
+                    "Weather",
+                    "Wettest day was one of the quietest",
+                    f"{date_label(wettest['date'])}: {wettest['precip_sum']:.1f} mm rain and {int(wettest['det_count'])} detections.",
+                )
+
+
+def add_record_streak_insights(all_news, current_news, start_date, end_date, insights):
+    if len(all_news) == 0 or len(current_news) == 0:
+        return
+
+    current_species = set(current_news["Com_Name"].dropna().unique())
+    streaks = []
+    for species in current_species:
+        species_dates = all_news[all_news["Com_Name"] == species]["date"].tolist()
+        current_streak = streak_ending_at(species_dates, end_date)
+        best_streak = longest_date_streak(species_dates)
+        if current_streak >= 7 and current_streak >= best_streak:
+            streaks.append((current_streak, species, True))
+        elif current_streak >= 14:
+            streaks.append((current_streak, species, False))
+
+    for current_streak, species, is_record in sorted(streaks, reverse=True)[:3]:
+        headline = f"Longest detection streak for {species}" if is_record else f"{species} streak continues"
+        detail = f"Detected on {current_streak} consecutive days up to {date_label(end_date)}."
+        add_insight(insights, 79 if is_record else 66, "Record", headline, detail, species)
+
+    if "Confidence" in current_news.columns and current_news["Confidence"].notna().any():
+        period_days = (end_date - start_date).days + 1
+        comp = comparison_window(all_news.dropna(subset=["Confidence"]), current_news, start_date, end_date)
+        if len(comp) and comp["Confidence"].notna().any():
+            current_conf = current_news["Confidence"].mean()
+            comp_conf = comp["Confidence"].mean()
+            if current_conf >= 0.85 and current_conf >= comp_conf + 0.08 and len(current_news) >= 10:
+                add_insight(
+                    insights,
+                    57,
+                    "Record",
+                    "High-confidence detection period",
+                    f"Average confidence was {current_conf:.2f}, above the comparison average of {comp_conf:.2f}.",
+                )
+
+        if period_days == 1:
+            current_species_set = set(current_news["Com_Name"].dropna().astype(str).value_counts().head(3).index)
+            if len(current_species_set) >= 3:
+                previous_sets = daily_species_sets(all_news[all_news["date"] < start_date])
+                seen_before = any(current_species_set.issubset(species_set) for species_set in previous_sets.values())
+                if not seen_before:
+                    add_insight(
+                        insights,
+                        55,
+                        "Record",
+                        "New top-three species combination",
+                        "The three most-recorded species for this day had not previously been detected together on a single day.",
+                    )
+
+
+def add_data_quality_insights(all_news, current_news, start_date, end_date, insights):
+    if len(current_news) == 0:
+        return
+
+    if "UK_Status" in current_news.columns:
+        review_statuses = ["Review Recording", "False Positive"]
+        review_rows = current_news[current_news["UK_Status"].isin(review_statuses)]
+        if len(review_rows) >= 5:
+            add_insight(
+                insights,
+                86,
+                "Data quality",
+                "Several detections need review",
+                f"{len(review_rows):,} detections are marked as Review Recording or False Positive in this period.",
+            )
+
+        rare_statuses = ["Rare vagrant", "Scarce visitor"]
+        rare_rows = current_news[current_news["UK_Status"].isin(rare_statuses)].copy()
+        if len(rare_rows):
+            low_conf_rare = rare_rows[rare_rows["Confidence"] <= 0.75] if "Confidence" in rare_rows.columns else rare_rows.iloc[0:0]
+            top_rare = rare_rows["Com_Name"].value_counts().head(3).index.tolist()
+            if len(low_conf_rare) or len(rare_rows) >= 3:
+                add_insight(
+                    insights,
+                    82,
+                    "Data quality",
+                    "Unusual detections may need review",
+                    f"{len(rare_rows):,} scarce or rare detections: {', '.join(top_rare)}.",
+                )
+
+    if "Confidence" in current_news.columns and current_news["Confidence"].notna().any():
+        period_days = (end_date - start_date).days + 1
+        low_conf = current_news[current_news["Confidence"] <= 0.70]
+        low_rate = len(low_conf) / max(len(current_news), 1)
+        comp = comparison_window(all_news.dropna(subset=["Confidence"]), current_news, start_date, end_date)
+        comp_low_rate = (comp["Confidence"] <= 0.70).mean() if len(comp) else 0
+        if len(low_conf) >= 10 and low_rate >= max(0.20, comp_low_rate * 2):
+            add_insight(
+                insights,
+                78,
+                "Data quality",
+                "Low-confidence detections spiked",
+                f"{len(low_conf):,} low-confidence detections ({low_rate:.0%}) vs a comparison rate of {comp_low_rate:.0%}.",
+            )
+
+
+def add_garden_event_watch_insights(all_news, current_news, end_date, events, insights):
+    if len(all_news) == 0:
+        return
+
+    year = end_date.year
+    month = end_date.month
+    year_df = all_news[
+        (all_news["year"] == year) &
+        (all_news["date"] <= end_date)
+    ].copy()
+    for event in events:
+        event_months = set(event.get("months", []))
+        if event_months and month not in event_months:
+            continue
+
+        if event.get("trigger") == "first_seen_year":
+            seen_this_year = int(event_species_mask(year_df, event).sum()) > 0
+            if not seen_this_year:
+                add_insight(
+                    insights,
+                    52,
+                    "Garden year",
+                    f"{event.get('label', 'Arrival window')} window is open",
+                    "No matching detections yet this year, but this is the usual seasonal window.",
+                )
+        elif event.get("trigger") == "spike" and len(current_news):
+            current_count = int(event_species_mask(current_news, event).sum())
+            if current_count >= 5:
+                add_insight(
+                    insights,
+                    50,
+                    "Garden year",
+                    f"{event.get('label', 'Garden event')} is active",
+                    f"{current_count:,} matching detections in the selected period.",
+                )
+
+
+def build_news_insights(all_data, period_data, start_date, end_date, events, weather_daily=None):
     all_news = prepare_news_df(all_data)
     current_news = prepare_news_df(period_data)
     insights = []
@@ -982,8 +1642,17 @@ def build_news_insights(all_data, period_data, start_date, end_date, events):
 
     add_period_record_insights(all_news, current_news, start_date, end_date, insights)
     add_arrival_insights(all_news, current_news, start_date, end_date, events, insights)
+    add_expected_arrival_insights(all_news, current_news, start_date, end_date, insights)
     add_species_change_insights(all_news, current_news, start_date, end_date, events, insights)
     add_event_ytd_insights(all_news, end_date, events, insights)
+    add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weather_daily, insights)
+    add_absence_comeback_insights(all_news, current_news, start_date, end_date, insights)
+    add_community_mix_insights(all_news, current_news, start_date, end_date, insights)
+    add_time_of_day_insights(all_news, current_news, start_date, end_date, insights)
+    add_weather_insights(all_news, current_news, start_date, end_date, weather_daily, insights)
+    add_record_streak_insights(all_news, current_news, start_date, end_date, insights)
+    add_data_quality_insights(all_news, current_news, start_date, end_date, insights)
+    add_garden_event_watch_insights(all_news, current_news, end_date, events, insights)
 
     seen = set()
     deduped = []
@@ -993,7 +1662,7 @@ def build_news_insights(all_data, period_data, start_date, end_date, events):
             continue
         seen.add(key)
         deduped.append(insight)
-    return deduped[:7]
+    return deduped[:10]
 
 
 def render_news_insight(insight, lead=False):
@@ -1221,6 +1890,16 @@ if page == "Daily Overview":
         if len(daily_view) == 0:
             st.info("No detections were recorded for this period under the current filters.")
         else:
+            weather_daily = None
+            if {"Lat", "Lon"}.issubset(daily_view.columns) and daily_view["Lat"].notna().any() and daily_view["Lon"].notna().any():
+                w_lat = float(daily_view["Lat"].mode().iloc[0])
+                w_lon = float(daily_view["Lon"].mode().iloc[0])
+                _, weather_daily = fetch_weather(
+                    w_lat, w_lon,
+                    daily_window_start.strftime("%Y-%m-%d"),
+                    daily_window_end.strftime("%Y-%m-%d"),
+                )
+
             garden_events = load_garden_events()
             news_insights = build_news_insights(
                 daily_base,
@@ -1228,6 +1907,7 @@ if page == "Daily Overview":
                 daily_window_start,
                 daily_window_end,
                 garden_events,
+                weather_daily,
             )
 
             st.subheader("Headlines")
@@ -1243,16 +1923,6 @@ if page == "Daily Overview":
 
             st.divider()
             st.subheader("Drill-down")
-
-            weather_daily = None
-            if {"Lat", "Lon"}.issubset(daily_view.columns) and daily_view["Lat"].notna().any() and daily_view["Lon"].notna().any():
-                w_lat = float(daily_view["Lat"].mode().iloc[0])
-                w_lon = float(daily_view["Lon"].mode().iloc[0])
-                _, weather_daily = fetch_weather(
-                    w_lat, w_lon,
-                    daily_window_start.strftime("%Y-%m-%d"),
-                    daily_window_end.strftime("%Y-%m-%d"),
-                )
 
             st.subheader("Weather Summary")
             if weather_daily is None or len(weather_daily) == 0:
