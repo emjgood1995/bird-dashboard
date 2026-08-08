@@ -718,14 +718,17 @@ def prepare_news_df(data):
     return news_df
 
 
-def add_insight(insights, priority, category, headline, detail, species=None):
-    insights.append({
+def add_insight(insights, priority, category, headline, detail, species=None, chart=None):
+    insight = {
         "priority": priority,
         "category": category,
         "headline": headline,
         "detail": detail,
         "species": species,
-    })
+    }
+    if chart is not None:
+        insight["chart"] = chart
+    insights.append(insight)
 
 
 def insight_key(insight):
@@ -936,6 +939,7 @@ def add_period_record_insights(all_news, current_news, start_date, end_date, ins
                 "Record",
                 f"Busiest {noun} on record",
                 f"{current_count:,} detections, ahead of the previous high of {int(before_current.max()):,}.",
+                chart={"type": "activity_period", "metric": "detections"},
             )
         elif median_count > 0:
             change = pct_change(current_count, median_count)
@@ -946,6 +950,7 @@ def add_period_record_insights(all_news, current_news, start_date, end_date, ins
                     "Activity",
                     f"Unusually busy {noun}",
                     f"{current_count:,} detections, {signed_pct_label(change)} vs the typical {noun}.",
+                    chart={"type": "activity_period", "metric": "detections"},
                 )
             elif change is not None and change <= -45 and median_count - current_count >= max(20, median_count * 0.35):
                 add_insight(
@@ -954,6 +959,7 @@ def add_period_record_insights(all_news, current_news, start_date, end_date, ins
                     "Activity",
                     f"Quiet {noun}",
                     f"{current_count:,} detections, {signed_pct_label(change)} vs the typical {noun}.",
+                    chart={"type": "activity_period", "metric": "detections"},
                 )
 
     if period_days == 1:
@@ -965,6 +971,7 @@ def add_period_record_insights(all_news, current_news, start_date, end_date, ins
                 "Diversity",
                 "Highest species count for a day",
                 f"{current_species:,} species recorded on {date_label(end_date)}.",
+                chart={"type": "species_mix_period"},
             )
         elif len(daily_species) >= 5 and daily_species.median() > 0:
             species_change = pct_change(current_species, daily_species.median())
@@ -975,6 +982,7 @@ def add_period_record_insights(all_news, current_news, start_date, end_date, ins
                     "Diversity",
                     "Species mix was richer than usual",
                     f"{current_species:,} species, {signed_pct_label(species_change)} vs a typical day.",
+                    chart={"type": "species_mix_period"},
                 )
 
 
@@ -1049,7 +1057,15 @@ def add_arrival_insights(all_news, current_news, start_date, end_date, events, i
         candidate_rows.append((priority, headline, detail, species))
 
     for priority, headline, detail, species in sorted(candidate_rows, reverse=True)[:4]:
-        add_insight(insights, priority, "Arrival", headline, detail, species)
+        add_insight(
+            insights,
+            priority,
+            "Arrival",
+            headline,
+            detail,
+            species,
+            chart={"type": "species_recent", "species": species},
+        )
 
 
 def add_species_change_insights(all_news, current_news, start_date, end_date, events, insights):
@@ -1090,6 +1106,7 @@ def add_species_change_insights(all_news, current_news, start_date, end_date, ev
                 headline,
                 f"{current:,} detections vs about {expected:.0f} expected for this period ({signed_pct_label(change)}).",
                 sp,
+                {"type": "species_recent", "species": sp},
             ))
         elif expected >= 10 and current <= expected * 0.35:
             event_matches = matching_events(sp, events, trigger="drop_vs_last_year", months=months)
@@ -1100,12 +1117,13 @@ def add_species_change_insights(all_news, current_news, start_date, end_date, ev
                 headline,
                 f"{current:,} detections vs about {expected:.0f} expected for this period ({signed_pct_label(change)}).",
                 sp,
+                {"type": "species_recent", "species": sp},
             ))
 
-    for priority, headline, detail, species_name in sorted(spikes, reverse=True)[:3]:
-        add_insight(insights, priority, "Species", headline, detail, species_name)
-    for priority, headline, detail, species_name in sorted(drops, reverse=True)[:3]:
-        add_insight(insights, priority, "Species", headline, detail, species_name)
+    for priority, headline, detail, species_name, chart in sorted(spikes, key=lambda row: row[0], reverse=True)[:3]:
+        add_insight(insights, priority, "Species", headline, detail, species_name, chart=chart)
+    for priority, headline, detail, species_name, chart in sorted(drops, key=lambda row: row[0], reverse=True)[:3]:
+        add_insight(insights, priority, "Species", headline, detail, species_name, chart=chart)
 
 
 def add_event_ytd_insights(all_news, end_date, events, insights):
@@ -1159,6 +1177,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
         return
 
     period_days = (end_date - start_date).days + 1
+    dawn_chart = {"type": "hourly_activity", "highlight_hours": list(range(3, 11))}
     dawn = current_news[(current_news["hour"] >= 3) & (current_news["hour"] <= 10)].copy()
     if len(dawn) == 0:
         return
@@ -1177,6 +1196,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                 "Dawn chorus",
                 "Dawn chorus was busier than usual",
                 f"{len(dawn):,} detections between 03:00 and 10:00, {signed_pct_label(change)} vs expected.",
+                chart=dawn_chart,
             )
         elif len(dawn) <= expected * 0.45:
             add_insight(
@@ -1185,6 +1205,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                 "Dawn chorus",
                 "Dawn chorus was unusually quiet",
                 f"{len(dawn):,} detections between 03:00 and 10:00, {signed_pct_label(change)} vs expected.",
+                chart=dawn_chart,
             )
 
     top_dawn = dawn["Com_Name"].value_counts()
@@ -1200,6 +1221,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                 f"{top_species} dominated the dawn window",
                 f"{top_count:,} of {len(dawn):,} dawn detections ({top_share:.0%}) were {top_species}.",
                 top_species,
+                chart=dawn_chart,
             )
 
     if period_days == 1 and len(comp_dawn):
@@ -1215,6 +1237,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                     "Dawn chorus",
                     "Dawn chorus started earlier than usual",
                     f"First dawn detection was at {hour_text(current_first)}, {minutes_text(diff_minutes)} earlier than typical.",
+                    chart=dawn_chart,
                 )
             elif diff_minutes >= 45:
                 add_insight(
@@ -1223,6 +1246,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                     "Dawn chorus",
                     "Dawn chorus started later than usual",
                     f"First dawn detection was at {hour_text(current_first)}, {minutes_text(diff_minutes)} later than typical.",
+                    chart=dawn_chart,
                 )
 
         if weather_daily is not None and len(weather_daily):
@@ -1237,6 +1261,7 @@ def add_dawn_chorus_insights(all_news, current_news, start_date, end_date, weath
                         "Dawn chorus",
                         "First detection came well before sunrise",
                         f"First dawn detection was at {hour_text(current_first)}; sunrise was around {hour_text(sunrise_hour)}.",
+                        chart=dawn_chart,
                     )
 
 
@@ -1293,6 +1318,7 @@ def add_expected_arrival_insights(all_news, current_news, start_date, end_date, 
             f"{species} has not appeared yet this year",
             f"Usually first detected around {doy_label(row['median_doy'])}; currently about {int(row['days_late'])} days later than that.",
             species,
+            chart={"type": "species_recent", "species": species},
         )
 
 
@@ -1322,6 +1348,7 @@ def add_absence_comeback_insights(all_news, current_news, start_date, end_date, 
             f"{species} returned after a quiet spell",
             f"{count:,} detections after {gap_days} days without a detection.",
             species,
+            chart={"type": "species_recent", "species": species},
         )
 
     lookback_days = max(30, period_days * 3)
@@ -1347,6 +1374,7 @@ def add_absence_comeback_insights(all_news, current_news, start_date, end_date, 
             f"No {species} detections in this period",
             f"{recent_count:,} detections in the previous {lookback_days} days, but none in the selected period.",
             species,
+            chart={"type": "species_recent", "species": species},
         )
 
 
@@ -1370,6 +1398,7 @@ def add_community_mix_insights(all_news, current_news, start_date, end_date, ins
             f"{top_species} dominated the soundscape",
             f"{top_count:,} of {total:,} detections ({top_share:.0%}) were {top_species}.",
             top_species,
+            chart={"type": "species_recent", "species": top_species},
         )
 
     if "Diet" in current_news.columns:
@@ -1437,6 +1466,7 @@ def add_community_mix_insights(all_news, current_news, start_date, end_date, ins
                 "Community mix",
                 f"Richest species mix for a {period_noun(period_days)}",
                 f"{current_species:,} species detected in the selected period.",
+                chart={"type": "species_mix_period"},
             )
         elif median_species > 0:
             change = pct_change(current_species, median_species)
@@ -1447,6 +1477,7 @@ def add_community_mix_insights(all_news, current_news, start_date, end_date, ins
                     "Community mix",
                     "Species mix was narrower than usual",
                     f"{current_species:,} species, {signed_pct_label(change)} vs the typical {period_noun(period_days)}.",
+                    chart={"type": "species_mix_period"},
                 )
 
 
@@ -1464,6 +1495,7 @@ def add_time_of_day_insights(all_news, current_news, start_date, end_date, insig
             "Time of day",
             "Most activity happened before 7am",
             f"{early_count:,} of {total:,} detections ({early_count / total:.0%}) were before 07:00.",
+            chart={"type": "hourly_activity", "highlight_hours": list(range(0, 7))},
         )
 
     hour_counts = current_news["hour"].value_counts()
@@ -1478,6 +1510,7 @@ def add_time_of_day_insights(all_news, current_news, start_date, end_date, insig
                 "Time of day",
                 "Activity concentrated into one noisy hour",
                 f"{peak_count:,} detections ({peak_share:.0%}) came during {peak_hour:02d}:00-{(peak_hour + 1) % 24:02d}:00.",
+                chart={"type": "hourly_activity", "highlight_hours": [peak_hour]},
             )
 
     comp = comparison_window(all_news, current_news, start_date, end_date)
@@ -1485,9 +1518,9 @@ def add_time_of_day_insights(all_news, current_news, start_date, end_date, insig
     if comp_days == 0:
         return
 
-    for label, mask_fn, priority in [
-        ("evening", lambda data: (data["hour"] >= 17) & (data["hour"] < 22), 66),
-        ("night", lambda data: (data["hour"] >= 22) | (data["hour"] < 5), 64),
+    for label, mask_fn, priority, highlight_hours in [
+        ("evening", lambda data: (data["hour"] >= 17) & (data["hour"] < 22), 66, list(range(17, 22))),
+        ("night", lambda data: (data["hour"] >= 22) | (data["hour"] < 5), 64, [22, 23, 0, 1, 2, 3, 4]),
     ]:
         current_count = int(mask_fn(current_news).sum())
         expected = (int(mask_fn(comp).sum()) / comp_days) * period_days
@@ -1498,6 +1531,7 @@ def add_time_of_day_insights(all_news, current_news, start_date, end_date, insig
                 "Time of day",
                 f"Unusual {label} activity",
                 f"{current_count:,} {label} detections vs about {expected:.0f} expected.",
+                chart={"type": "hourly_activity", "highlight_hours": highlight_hours},
             )
 
 
@@ -1520,6 +1554,7 @@ def add_weather_insights(all_news, current_news, start_date, end_date, weather_d
                 "Weather",
                 "Rain did not dampen activity",
                 f"{rain_total:.1f} mm of rain, but detections were {signed_pct_label(activity_change)} vs expected.",
+                chart={"type": "weather_activity", "weather_metric": "precip_sum"},
             )
         if peak_wind >= 35 and current_total <= typical * 0.75:
             add_insight(
@@ -1528,6 +1563,7 @@ def add_weather_insights(all_news, current_news, start_date, end_date, weather_d
                 "Weather",
                 "Strong wind coincided with quieter activity",
                 f"Peak wind was {peak_wind:.1f} km/h and detections were {signed_pct_label(activity_change)} vs expected.",
+                chart={"type": "weather_activity", "weather_metric": "wind_max"},
             )
 
     if period_days >= 3:
@@ -1546,6 +1582,7 @@ def add_weather_insights(all_news, current_news, start_date, end_date, weather_d
                     "Weather",
                     "Warmest day had the richest species mix",
                     f"{date_label(warmest['date'])}: {warmest['temp_max']:.1f}C max and {int(warmest['species_count'])} species.",
+                    chart={"type": "weather_activity", "weather_metric": "temp_max"},
                 )
             wettest = merged.loc[merged["precip_sum"].idxmax()]
             if wettest["precip_sum"] >= 3 and wettest["det_count"] <= merged["det_count"].median() * 0.6:
@@ -1555,6 +1592,7 @@ def add_weather_insights(all_news, current_news, start_date, end_date, weather_d
                     "Weather",
                     "Wettest day was one of the quietest",
                     f"{date_label(wettest['date'])}: {wettest['precip_sum']:.1f} mm rain and {int(wettest['det_count'])} detections.",
+                    chart={"type": "weather_activity", "weather_metric": "precip_sum"},
                 )
 
 
@@ -1576,7 +1614,15 @@ def add_record_streak_insights(all_news, current_news, start_date, end_date, ins
     for current_streak, species, is_record in sorted(streaks, reverse=True)[:3]:
         headline = f"Longest detection streak for {species}" if is_record else f"{species} streak continues"
         detail = f"Detected on {current_streak} consecutive days up to {date_label(end_date)}."
-        add_insight(insights, 79 if is_record else 66, "Record", headline, detail, species)
+        add_insight(
+            insights,
+            79 if is_record else 66,
+            "Record",
+            headline,
+            detail,
+            species,
+            chart={"type": "species_recent", "species": species},
+        )
 
     if "Confidence" in current_news.columns and current_news["Confidence"].notna().any():
         period_days = (end_date - start_date).days + 1
@@ -1755,7 +1801,298 @@ def select_visible_news_insights(news_insights, limit=VISIBLE_HEADLINE_LIMIT):
     return selected
 
 
-def render_news_insight(insight):
+def news_chart_start(all_news, end_date, period_days):
+    lookback_days = max(60, period_days * 4)
+    return max(all_news["date"].min(), end_date - datetime.timedelta(days=lookback_days))
+
+
+def render_activity_period_chart(all_data, start_date, end_date):
+    all_news = prepare_news_df(all_data)
+    if len(all_news) == 0:
+        return False
+
+    period_days = (end_date - start_date).days + 1
+    all_dates = pd.date_range(all_news["date"].min(), end_date, freq="D").date
+    daily_counts = all_news.groupby("date").size().reindex(all_dates, fill_value=0)
+
+    if period_days == 1:
+        series = daily_counts
+        y_title = "Daily detections"
+    else:
+        series = daily_counts.rolling(period_days, min_periods=period_days).sum().dropna()
+        y_title = f"{period_days}-day detections"
+
+    chart_start = news_chart_start(all_news, end_date, period_days)
+    chart_df = series.rename("Detections").reset_index().rename(columns={"index": "date"})
+    chart_df = chart_df[chart_df["date"] >= chart_start].copy()
+    if len(chart_df) == 0:
+        return False
+
+    chart_df["Selected"] = chart_df["date"].apply(
+        lambda d: "Selected" if start_date <= d <= end_date else "Other"
+    )
+    if period_days > 1:
+        chart_df["Selected"] = chart_df["date"].apply(lambda d: "Selected" if d == end_date else "Other")
+
+    fig = px.bar(
+        chart_df,
+        x="date",
+        y="Detections",
+        color="Selected",
+        title=f"Detection activity over time ({y_title.lower()})",
+        labels={"date": "Date", "Detections": y_title, "Selected": ""},
+        color_discrete_map={"Selected": TERTIARY, "Other": PRIMARY},
+    )
+    median_value = float(series.median()) if len(series) else 0
+    fig.add_scatter(
+        x=[chart_df["date"].min(), chart_df["date"].max()],
+        y=[median_value, median_value],
+        mode="lines",
+        line=dict(color="#1a2416", width=2, dash="dot"),
+        name="Median",
+    )
+    fig.update_layout(height=280, showlegend=True)
+    fig.update_traces(marker_line_width=0)
+    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    return True
+
+
+def render_species_recent_chart(all_data, start_date, end_date, species):
+    all_news = prepare_news_df(all_data)
+    if len(all_news) == 0 or not species:
+        return False
+
+    species_news = all_news[all_news["Com_Name"] == species].copy()
+    if len(species_news) == 0:
+        return False
+
+    period_days = (end_date - start_date).days + 1
+    chart_start = news_chart_start(all_news, end_date, period_days)
+    chart_dates = pd.date_range(chart_start, end_date, freq="D").date
+    species_counts = species_news.groupby("date").size().reindex(chart_dates, fill_value=0)
+    chart_df = species_counts.rename("Detections").reset_index().rename(columns={"index": "date"})
+    chart_df["Selected"] = chart_df["date"].apply(
+        lambda d: "Selected" if start_date <= d <= end_date else "Other"
+    )
+
+    comparison = comparison_window(all_news, prepare_news_df(filter_date_window(all_data, start_date, end_date)), start_date, end_date)
+    expected_daily = None
+    comp_species = comparison[comparison["Com_Name"] == species].copy()
+    comp_days = comparison["date"].nunique()
+    if comp_days:
+        expected_daily = len(comp_species) / comp_days
+
+    fig = px.bar(
+        chart_df,
+        x="date",
+        y="Detections",
+        color="Selected",
+        title=f"{species} detections around the selected period",
+        labels={"date": "Date", "Detections": "Detections", "Selected": ""},
+        color_discrete_map={"Selected": TERTIARY, "Other": SECONDARY},
+    )
+    if expected_daily is not None:
+        fig.add_scatter(
+            x=[chart_df["date"].min(), chart_df["date"].max()],
+            y=[expected_daily, expected_daily],
+            mode="lines",
+            line=dict(color="#1a2416", width=2, dash="dot"),
+            name="Expected/day",
+        )
+    fig.update_layout(height=280, showlegend=True)
+    fig.update_traces(marker_line_width=0)
+    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    return True
+
+
+def render_species_mix_period_chart(all_data, start_date, end_date):
+    all_news = prepare_news_df(all_data)
+    if len(all_news) == 0:
+        return False
+
+    period_days = (end_date - start_date).days + 1
+    all_dates = pd.date_range(all_news["date"].min(), end_date, freq="D").date
+    species_by_date = all_news.groupby("date")["Com_Name"].apply(lambda x: set(x.dropna())).to_dict()
+    rolling_species = []
+    for idx, day in enumerate(all_dates):
+        if idx + 1 < period_days:
+            continue
+        window_species = set()
+        for window_day in all_dates[idx + 1 - period_days:idx + 1]:
+            window_species.update(species_by_date.get(window_day, set()))
+        rolling_species.append({"date": day, "Species": len(window_species)})
+
+    chart_df = pd.DataFrame(rolling_species)
+    if len(chart_df) == 0:
+        return False
+
+    chart_start = news_chart_start(all_news, end_date, period_days)
+    chart_df = chart_df[chart_df["date"] >= chart_start].copy()
+    if len(chart_df) == 0:
+        return False
+
+    chart_df["Selected"] = chart_df["date"].apply(
+        lambda d: "Selected" if start_date <= d <= end_date else "Other"
+    )
+    if period_days > 1:
+        chart_df["Selected"] = chart_df["date"].apply(lambda d: "Selected" if d == end_date else "Other")
+
+    y_title = "Daily species" if period_days == 1 else f"{period_days}-day species"
+    fig = px.bar(
+        chart_df,
+        x="date",
+        y="Species",
+        color="Selected",
+        title=f"Species richness over time ({y_title.lower()})",
+        labels={"date": "Date", "Species": y_title, "Selected": ""},
+        color_discrete_map={"Selected": TERTIARY, "Other": SECONDARY},
+    )
+    median_value = float(chart_df["Species"].median()) if len(chart_df) else 0
+    fig.add_scatter(
+        x=[chart_df["date"].min(), chart_df["date"].max()],
+        y=[median_value, median_value],
+        mode="lines",
+        line=dict(color="#1a2416", width=2, dash="dot"),
+        name="Median",
+    )
+    fig.update_layout(height=280, showlegend=True)
+    fig.update_traces(marker_line_width=0)
+    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    return True
+
+
+def render_hourly_activity_chart(all_data, period_data, start_date, end_date, highlight_hours=None):
+    all_news = prepare_news_df(all_data)
+    current_news = prepare_news_df(period_data)
+    if len(all_news) == 0 or len(current_news) == 0:
+        return False
+
+    period_days = (end_date - start_date).days + 1
+    hours = list(range(24))
+    current_counts = current_news.groupby("hour").size().reindex(hours, fill_value=0)
+    highlight_hours = set(highlight_hours or [])
+    bar_colors = [TERTIARY if hour in highlight_hours else PRIMARY for hour in hours]
+    hour_labels = [f"{hour:02d}:00" for hour in hours]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=hour_labels,
+            y=current_counts.values,
+            name="Selected period",
+            marker_color=bar_colors,
+            opacity=0.78,
+        )
+    )
+
+    comp = comparison_window(all_news, current_news, start_date, end_date)
+    comp_days = comp["date"].nunique()
+    if comp_days:
+        expected_counts = comp.groupby("hour").size().reindex(hours, fill_value=0) / comp_days * period_days
+        fig.add_trace(
+            go.Scatter(
+                x=hour_labels,
+                y=expected_counts.values,
+                name="Expected",
+                mode="lines+markers",
+                line=dict(color="#1a2416", width=2.5),
+                marker=dict(size=5, color="#1a2416"),
+            )
+        )
+
+    fig.update_layout(
+        title="Hourly activity profile",
+        height=280,
+        showlegend=True,
+        xaxis_title="Hour",
+        yaxis_title="Detections",
+    )
+    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    return True
+
+
+def render_weather_activity_chart(period_data, weather_daily, weather_metric):
+    if weather_daily is None or len(weather_daily) == 0:
+        return False
+
+    current_news = prepare_news_df(period_data)
+    if len(current_news) == 0:
+        return False
+
+    daily_activity = (
+        current_news.groupby("date")
+        .agg(detections=("Com_Name", "size"), species=("Com_Name", "nunique"))
+        .reset_index()
+    )
+    merged = daily_activity.merge(weather_daily, on="date", how="inner")
+    if len(merged) == 0 or weather_metric not in merged.columns:
+        return False
+
+    metric_labels = {
+        "precip_sum": ("Rainfall", "Rainfall (mm)", SECONDARY),
+        "wind_max": ("Max wind", "Max wind (km/h)", "#607080"),
+        "temp_max": ("Max temp", "Max temp (C)", "#c47a5a"),
+    }
+    metric_name, metric_label, metric_color = metric_labels.get(
+        weather_metric,
+        (weather_metric, weather_metric, SECONDARY),
+    )
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    fig.add_trace(
+        go.Bar(
+            x=merged["date"],
+            y=merged["detections"],
+            name="Detections",
+            marker_color=PRIMARY,
+            opacity=0.72,
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=merged["date"],
+            y=merged[weather_metric],
+            name=metric_name,
+            mode="lines+markers",
+            line=dict(color=metric_color, width=2.5),
+            marker=dict(size=7, color=metric_color),
+        ),
+        secondary_y=True,
+    )
+    fig.update_layout(title=f"Detections with {metric_name.lower()}", height=280, legend=dict(x=0.01, y=0.99))
+    fig.update_yaxes(title_text="Detections", secondary_y=False)
+    fig.update_yaxes(title_text=metric_label, secondary_y=True)
+    st.plotly_chart(style_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    return True
+
+
+def render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily):
+    chart = insight.get("chart")
+    if not chart:
+        return False
+
+    chart_type = chart.get("type")
+    if chart_type == "activity_period":
+        return render_activity_period_chart(all_data, start_date, end_date)
+    if chart_type == "species_recent":
+        return render_species_recent_chart(all_data, start_date, end_date, chart.get("species"))
+    if chart_type == "species_mix_period":
+        return render_species_mix_period_chart(all_data, start_date, end_date)
+    if chart_type == "hourly_activity":
+        return render_hourly_activity_chart(
+            all_data,
+            period_data,
+            start_date,
+            end_date,
+            chart.get("highlight_hours"),
+        )
+    if chart_type == "weather_activity":
+        return render_weather_activity_chart(period_data, weather_daily, chart.get("weather_metric"))
+    return False
+
+
+def render_news_insight(insight, all_data=None, period_data=None, start_date=None, end_date=None, weather_daily=None):
     headline = html.escape(str(insight["headline"]))
     detail = html.escape(str(insight["detail"]))
     accent = NEWS_CATEGORY_COLORS.get(insight["category"], PRIMARY)
@@ -1768,6 +2105,11 @@ def render_news_insight(insight):
 """,
         unsafe_allow_html=True,
     )
+    if insight.get("chart") and all_data is not None and period_data is not None:
+        with st.expander("View chart"):
+            rendered = render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily)
+            if not rendered:
+                st.info("No chart is available for this headline in the selected period.")
 
 
 st.title("🐦 Garden Bird Dashboard")
@@ -2011,7 +2353,14 @@ if page == "Daily Overview":
             visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
                 for insight in visible_news_insights:
-                    render_news_insight(insight)
+                    render_news_insight(
+                        insight,
+                        daily_base,
+                        daily_view,
+                        daily_window_start,
+                        daily_window_end,
+                        weather_daily,
+                    )
             else:
                 st.info("No major changes detected for this period.")
 
