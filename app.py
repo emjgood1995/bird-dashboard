@@ -248,13 +248,6 @@ st.markdown("""
     letter-spacing: 0 !important;
     line-height: 1.12 !important;
   }
-  .daily-date-meta {
-    color: var(--muted) !important;
-    font-size: 0.98rem !important;
-    font-weight: 600 !important;
-    line-height: 1.35 !important;
-    margin-top: 8px !important;
-  }
   .daily-controls-spacer {
     height: 4px !important;
   }
@@ -2387,7 +2380,6 @@ if page == "Daily Overview":
                 f"""
 <div class="daily-date-panel">
   <div class="daily-date-title">{html.escape(format_period_label(daily_window_start, daily_window_end))}</div>
-  <div class="daily-date-meta">{len(daily_period_filtered):,} detections · {len(daily_available_dates):,} available days</div>
 </div>
 """,
                 unsafe_allow_html=True,
