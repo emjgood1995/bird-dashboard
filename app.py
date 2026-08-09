@@ -1886,7 +1886,7 @@ def style_news_fig(fig):
     return fig
 
 
-def render_activity_period_chart(all_data, start_date, end_date):
+def render_activity_period_chart(all_data, start_date, end_date, chart_key):
     all_news = prepare_news_df(all_data)
     if len(all_news) == 0:
         return False
@@ -1933,11 +1933,11 @@ def render_activity_period_chart(all_data, start_date, end_date):
     )
     fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), width="stretch", config={"displayModeBar": False}, key=chart_key)
     return True
 
 
-def render_species_recent_chart(all_data, start_date, end_date, species):
+def render_species_recent_chart(all_data, start_date, end_date, species, chart_key):
     all_news = prepare_news_df(all_data)
     if len(all_news) == 0 or not species:
         return False
@@ -1981,11 +1981,11 @@ def render_species_recent_chart(all_data, start_date, end_date, species):
         )
     fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), width="stretch", config={"displayModeBar": False}, key=chart_key)
     return True
 
 
-def render_species_mix_period_chart(all_data, start_date, end_date):
+def render_species_mix_period_chart(all_data, start_date, end_date, chart_key):
     all_news = prepare_news_df(all_data)
     if len(all_news) == 0:
         return False
@@ -2037,11 +2037,11 @@ def render_species_mix_period_chart(all_data, start_date, end_date):
     )
     fig.update_layout(showlegend=True)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), width="stretch", config={"displayModeBar": False}, key=chart_key)
     return True
 
 
-def render_hourly_activity_chart(all_data, period_data, start_date, end_date, highlight_hours=None):
+def render_hourly_activity_chart(all_data, period_data, start_date, end_date, chart_key, highlight_hours=None):
     all_news = prepare_news_df(all_data)
     current_news = prepare_news_df(period_data)
     if len(all_news) == 0 or len(current_news) == 0:
@@ -2086,11 +2086,11 @@ def render_hourly_activity_chart(all_data, period_data, start_date, end_date, hi
         xaxis_title="Hour",
         yaxis_title="Detections",
     )
-    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), width="stretch", config={"displayModeBar": False}, key=chart_key)
     return True
 
 
-def render_weather_activity_chart(period_data, weather_daily, weather_metric):
+def render_weather_activity_chart(period_data, weather_daily, weather_metric, chart_key):
     if weather_daily is None or len(weather_daily) == 0:
         return False
 
@@ -2142,36 +2142,51 @@ def render_weather_activity_chart(period_data, weather_daily, weather_metric):
     fig.update_layout(title_text="", legend=dict(x=0.01, y=0.99))
     fig.update_yaxes(title_text="Detections", secondary_y=False)
     fig.update_yaxes(title_text=metric_label, secondary_y=True)
-    st.plotly_chart(style_news_fig(fig), use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(style_news_fig(fig), width="stretch", config={"displayModeBar": False}, key=chart_key)
     return True
 
 
-def render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily):
+def headline_chart_key(insight, start_date, end_date, index):
+    payload = {
+        "category": insight.get("category"),
+        "headline": insight.get("headline"),
+        "species": insight.get("species"),
+        "chart": insight.get("chart"),
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "index": index,
+    }
+    digest = hashlib.md5(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return f"headline_chart_{digest}"
+
+
+def render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily, chart_key):
     chart = insight.get("chart")
     if not chart:
         return False
 
     chart_type = chart.get("type")
     if chart_type == "activity_period":
-        return render_activity_period_chart(all_data, start_date, end_date)
+        return render_activity_period_chart(all_data, start_date, end_date, chart_key)
     if chart_type == "species_recent":
-        return render_species_recent_chart(all_data, start_date, end_date, chart.get("species"))
+        return render_species_recent_chart(all_data, start_date, end_date, chart.get("species"), chart_key)
     if chart_type == "species_mix_period":
-        return render_species_mix_period_chart(all_data, start_date, end_date)
+        return render_species_mix_period_chart(all_data, start_date, end_date, chart_key)
     if chart_type == "hourly_activity":
         return render_hourly_activity_chart(
             all_data,
             period_data,
             start_date,
             end_date,
+            chart_key,
             chart.get("highlight_hours"),
         )
     if chart_type == "weather_activity":
-        return render_weather_activity_chart(period_data, weather_daily, chart.get("weather_metric"))
+        return render_weather_activity_chart(period_data, weather_daily, chart.get("weather_metric"), chart_key)
     return False
 
 
-def render_news_insight(insight, all_data=None, period_data=None, start_date=None, end_date=None, weather_daily=None):
+def render_news_insight(insight, all_data=None, period_data=None, start_date=None, end_date=None, weather_daily=None, index=0):
     headline = html.escape(str(insight["headline"]))
     detail = html.escape(str(insight["detail"]))
     accent = NEWS_CATEGORY_COLORS.get(insight["category"], PRIMARY)
@@ -2185,7 +2200,8 @@ def render_news_insight(insight, all_data=None, period_data=None, start_date=Non
         unsafe_allow_html=True,
     )
     if insight.get("chart") and all_data is not None and period_data is not None:
-        render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily)
+        chart_key = headline_chart_key(insight, start_date, end_date, index)
+        render_news_chart(insight, all_data, period_data, start_date, end_date, weather_daily, chart_key)
 
 
 st.title("🐦 Garden Bird Dashboard")
@@ -2429,7 +2445,7 @@ if page == "Daily Overview":
             visible_news_insights = select_visible_news_insights(news_insights)
             visible_news_keys = {insight_key(insight) for insight in visible_news_insights}
             if visible_news_insights:
-                for insight in visible_news_insights:
+                for insight_idx, insight in enumerate(visible_news_insights):
                     render_news_insight(
                         insight,
                         daily_base,
@@ -2437,6 +2453,7 @@ if page == "Daily Overview":
                         daily_window_start,
                         daily_window_end,
                         weather_daily,
+                        index=insight_idx,
                     )
             else:
                 st.info("No major changes detected for this period.")
@@ -2514,7 +2531,7 @@ if page == "Daily Overview":
             fig.update_coloraxes(showscale=False)
             fig.update_traces(marker_line_width=0)
             fig.update_layout(height=max(420, len(species_counts) * 26))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             sp_hour = (
                 daily_view.groupby(["hour", "Com_Name"])
@@ -2539,7 +2556,7 @@ if page == "Daily Overview":
             )
             fig.update_layout(xaxis=dict(dtick=1))
             fig.update_traces(marker_line_width=0)
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             comp_hour = (
                 daily_view.groupby(["hour", "Com_Name"])
@@ -2561,7 +2578,7 @@ if page == "Daily Overview":
             )
             fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
             fig.update_traces(marker_line_width=0)
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             heatmap_counts = (
                 daily_view.groupby(["Com_Name", "hour"])
@@ -2588,7 +2605,7 @@ if page == "Daily Overview":
                     thickness=14,
                 ),
             )
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             species_windows = (
                 daily_view.groupby("Com_Name")
@@ -2663,7 +2680,7 @@ if page == "Daily Overview":
                 yaxis_title="",
                 xaxis=timeline_axis,
             )
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
 # ── Overview ────────────────────────────────────────────────────────────────
 elif page == "Overview":
@@ -2684,7 +2701,7 @@ elif page == "Overview":
     )
     fig.update_coloraxes(showscale=False)
     fig.update_traces(marker_line_width=0)
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -2773,7 +2790,7 @@ elif page == "Overview":
                 color_discrete_sequence=NATURE_PALETTE,
             )
             fig.update_traces(line=dict(width=2))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -2813,7 +2830,7 @@ elif page == "Overview":
         mode="lines+markers",
     )
     fig.update_layout(xaxis=dict(dtick=1))
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    st.plotly_chart(style_fig(fig), width="stretch")
 
     # Monthly & Weekly — with optional year comparison
     trends_df = filtered.dropna(subset=["timestamp"]).copy()
@@ -2850,7 +2867,7 @@ elif page == "Overview":
                 tickvals=list(MONTH_LABELS.keys()),
                 ticktext=list(MONTH_LABELS.values()),
             ))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             # Weekly by year
             weekly_yr = _trend_agg(t_df, ["year", "week"])
@@ -2863,7 +2880,7 @@ elif page == "Overview":
                 markers=True,
             )
             fig.update_traces(line=dict(width=2), marker=dict(size=4))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
     else:
         # Monthly — aggregated
         monthly = _trend_agg(filtered, "month")
@@ -2884,7 +2901,7 @@ elif page == "Overview":
             tickvals=list(MONTH_LABELS.keys()),
             ticktext=list(MONTH_LABELS.values()),
         ))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
         # Weekly — aggregated
         weekly = _trend_agg(filtered, "week")
@@ -2899,7 +2916,7 @@ elif page == "Overview":
             marker=dict(size=5, color=SECONDARY),
             mode="lines+markers",
         )
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
 # ── Community ──────────────────────────────────────────────────────
 elif page == "Community":
@@ -2967,7 +2984,7 @@ elif page == "Community":
                 mode="lines+markers",
             )
             fig.update_layout(xaxis=dict(dtick=1))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     # Controls row
     def _tod_on_months():
@@ -3081,7 +3098,7 @@ elif page == "Community":
             thickness=14,
         ),
     )
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -3159,7 +3176,7 @@ elif page == "Community":
         )
         fig.update_layout(barmode="stack", xaxis=dict(dtick=1))
         fig.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     # Build label parts from global sidebar state
     years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
@@ -3276,7 +3293,7 @@ elif page == "Community":
         tickvals=list(MONTH_LABELS.keys()),
         ticktext=list(MONTH_LABELS.values()),
     ))
-    st.plotly_chart(style_fig(fig), use_container_width=True)
+    st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -3330,7 +3347,7 @@ elif page == "Community":
                 thickness=14,
             ),
         )
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -3388,7 +3405,7 @@ elif page == "Community":
             )
             fig_h.update_traces(line=dict(width=2), marker=dict(size=5))
             fig_h.update_layout(xaxis=_month_tick)
-            st.plotly_chart(style_fig(fig_h), use_container_width=True)
+            st.plotly_chart(style_fig(fig_h), width="stretch")
 
             fig_s = px.line(
                 div_result, x="month", y="Simpson_1D", color="Year",
@@ -3399,7 +3416,7 @@ elif page == "Community":
             )
             fig_s.update_traces(line=dict(width=2), marker=dict(size=5))
             fig_s.update_layout(xaxis=_month_tick)
-            st.plotly_chart(style_fig(fig_s), use_container_width=True)
+            st.plotly_chart(style_fig(fig_s), width="stretch")
 
             fig_r = px.line(
                 div_result, x="month", y="Unique_Species", color="Year",
@@ -3410,7 +3427,7 @@ elif page == "Community":
             )
             fig_r.update_traces(line=dict(width=2), marker=dict(size=5))
             fig_r.update_layout(xaxis=_month_tick)
-            st.plotly_chart(style_fig(fig_r), use_container_width=True)
+            st.plotly_chart(style_fig(fig_r), width="stretch")
     else:
         div_res = st.radio("Time resolution", ["Month", "Week"], horizontal=True, key="div_res")
 
@@ -3446,7 +3463,7 @@ elif page == "Community":
             markers=True,
         )
         fig_h.update_traces(line=dict(color=PRIMARY, width=2), marker=dict(size=5, color=PRIMARY))
-        st.plotly_chart(style_fig(fig_h), use_container_width=True)
+        st.plotly_chart(style_fig(fig_h), width="stretch")
 
         fig_s = px.line(
             div_result, x="Period", y="Simpson_1D",
@@ -3455,7 +3472,7 @@ elif page == "Community":
             markers=True,
         )
         fig_s.update_traces(line=dict(color=SECONDARY, width=2), marker=dict(size=5, color=SECONDARY))
-        st.plotly_chart(style_fig(fig_s), use_container_width=True)
+        st.plotly_chart(style_fig(fig_s), width="stretch")
 
         fig_r = px.line(
             div_result, x="Period", y="Unique_Species",
@@ -3464,7 +3481,7 @@ elif page == "Community":
             markers=True,
         )
         fig_r.update_traces(line=dict(color=TERTIARY, width=2), marker=dict(size=5, color=TERTIARY))
-        st.plotly_chart(style_fig(fig_r), use_container_width=True)
+        st.plotly_chart(style_fig(fig_r), width="stretch")
 
 # ── NMDS ──────────────────────────────────────────────────────────────────
 elif page == "NMDS":
@@ -3649,7 +3666,7 @@ elif page == "NMDS":
             ))
             _hull_group_title = None
 
-        st.plotly_chart(style_fig(fig_nmds), use_container_width=True)
+        st.plotly_chart(style_fig(fig_nmds), width="stretch")
 
         # Metrics row
         mc1, mc2, mc3 = st.columns(3)
@@ -3746,7 +3763,7 @@ elif page == "Dawn Chorus Overview":
                 name="Sunrise", showlegend=True,
             )
 
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -3838,7 +3855,7 @@ elif page == "Dawn Chorus Overview":
                         fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
                                         mode="lines", line=dict(color=TERTIARY, width=2, dash="dash"),
                                         name="Trend", showlegend=True)
-                    st.plotly_chart(style_fig(fig), use_container_width=True)
+                    st.plotly_chart(style_fig(fig), width="stretch")
 
                 with d_r2:
                     fig = px.scatter(
@@ -3855,7 +3872,7 @@ elif page == "Dawn Chorus Overview":
                     fig.add_scatter(x=xy_range, y=xy_range,
                                     mode="lines", line=dict(color="#1a2416", width=1, dash="dot"),
                                     name="Sunrise = Detection", showlegend=True)
-                    st.plotly_chart(style_fig(fig), use_container_width=True)
+                    st.plotly_chart(style_fig(fig), width="stretch")
         else:
             st.info("Could not fetch sunrise data.")
 
@@ -3913,7 +3930,7 @@ elif page == "Weather & Activity":
                 fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
                                 mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
                                 name="Trend", showlegend=True)
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             st.divider()
 
@@ -3956,7 +3973,7 @@ elif page == "Weather & Activity":
                         f"Rainy: {avg_rain_det:.0f}" if pd.notna(avg_rain_det) else "—",
                         f"Dry: {avg_dry_det:.0f}" if pd.notna(avg_dry_det) else None)
 
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             st.divider()
 
@@ -3985,7 +4002,7 @@ elif page == "Weather & Activity":
                 )
                 fig.update_traces(marker_color=PRIMARY, marker_line_width=0,
                                   texttemplate="%{text} days", textposition="outside")
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+                st.plotly_chart(style_fig(fig), width="stretch")
 
             with w_r:
                 fig = px.bar(
@@ -3996,7 +4013,7 @@ elif page == "Weather & Activity":
                 )
                 fig.update_traces(marker_color=SECONDARY, marker_line_width=0,
                                   texttemplate="%{text} days", textposition="outside")
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+                st.plotly_chart(style_fig(fig), width="stretch")
 
             st.divider()
 
@@ -4032,7 +4049,7 @@ elif page == "Weather & Activity":
             )
             fig.update_yaxes(title_text="Detections", secondary_y=False)
             fig.update_yaxes(title_text="Temperature (°C)", secondary_y=True)
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
             # Rainfall overlay
             fig2 = make_subplots(specs=[[{"secondary_y": True}]])
@@ -4058,7 +4075,7 @@ elif page == "Weather & Activity":
             )
             fig2.update_yaxes(title_text="Detections", secondary_y=False)
             fig2.update_yaxes(title_text="Rainfall (mm)", secondary_y=True)
-            st.plotly_chart(style_fig(fig2), use_container_width=True)
+            st.plotly_chart(style_fig(fig2), width="stretch")
 
             st.divider()
 
@@ -4082,7 +4099,7 @@ elif page == "Weather & Activity":
                     fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
                                     mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
                                     name="Trend", showlegend=True)
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+                st.plotly_chart(style_fig(fig), width="stretch")
 
             with d_r:
                 fig = px.scatter(
@@ -4100,7 +4117,7 @@ elif page == "Weather & Activity":
                     fig.add_scatter(x=x_range, y=np.polyval(z, x_range),
                                     mode="lines", line=dict(color=PRIMARY, width=2, dash="dash"),
                                     name="Trend", showlegend=True)
-                st.plotly_chart(style_fig(fig), use_container_width=True)
+                st.plotly_chart(style_fig(fig), width="stretch")
 
 
 # ── Data Quality ─────────────────────────────────────────────────
@@ -4141,7 +4158,7 @@ elif page == "Data Quality":
         if cd_box:
             fig.update_traces(box_visible=True)
         fig.update_layout(showlegend=False, height=max(400, len(species_order) * 28))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -4175,7 +4192,7 @@ elif page == "Data Quality":
                 color_discrete_map=cmap,
             )
             fig.update_traces(marker=dict(size=6, opacity=0.7))
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
         with fp_right:
             summary = (
@@ -4216,7 +4233,7 @@ elif page == "Data Quality":
         )
         fig.update_coloraxes(showscale=False)
         fig.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
         st.subheader("Review Recording: Confidence by Hour")
 
@@ -4237,7 +4254,7 @@ elif page == "Data Quality":
             marker=dict(size=5, color=TERTIARY),
         )
         fig.update_layout(xaxis=dict(dtick=1))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -4433,7 +4450,7 @@ elif page == "Records":
             fig = _gantt_chart(gantt_df, "Earliest_Detection", "Latest_Detection", "Species", "UK_Status", color_map=cmap)
             fig.update_yaxes(categoryorder="array", categoryarray=gantt_df["Species"].tolist())
             fig.update_layout(yaxis_title="", xaxis_title="")
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
         elif gantt_view == "Average across years":
             # Average arrival/departure day-of-year across years, projected onto a reference year
@@ -4468,7 +4485,7 @@ elif page == "Records":
                     dtick="M1",
                 ),
             )
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
         else:
             # Year-over-year mode
@@ -4486,7 +4503,7 @@ elif page == "Records":
             fig = _gantt_chart(yoy, "Start", "End", "Label", "year_str", color_seq=NATURE_PALETTE, labels={"year_str": "Year"})
             fig.update_yaxes(categoryorder="array", categoryarray=yoy["Label"].tolist())
             fig.update_layout(yaxis_title="", xaxis_title="")
-            st.plotly_chart(style_fig(fig), use_container_width=True)
+            st.plotly_chart(style_fig(fig), width="stretch")
 
     st.divider()
 
@@ -4523,7 +4540,7 @@ elif page == "Records":
         )
         fig.update_traces(marker=dict(opacity=0.8, line=dict(width=0.5, color="#1a2416")))
         fig.update_layout(height=max(400, len(species_order) * 22))
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
 
         # Detail table
         rare_table = (
@@ -4630,7 +4647,7 @@ elif page == "Records":
                 thickness=14,
             ),
         )
-        st.plotly_chart(style_fig(fig), use_container_width=True)
+        st.plotly_chart(style_fig(fig), width="stretch")
     else:
         st.info("No data available for the current filters.")
 
@@ -5070,7 +5087,7 @@ elif page == "\U0001f382":
         )
         fig_sp.update_coloraxes(showscale=False)
         fig_sp.update_traces(marker_line_width=0)
-        st.plotly_chart(style_fig(fig_sp), use_container_width=True)
+        st.plotly_chart(style_fig(fig_sp), width="stretch")
 
         st.divider()
 
@@ -5118,7 +5135,7 @@ elif page == "\U0001f382":
                 mode="lines+markers",
             )
             fig_hr.update_layout(xaxis=dict(dtick=1))
-        st.plotly_chart(style_fig(fig_hr), use_container_width=True)
+        st.plotly_chart(style_fig(fig_hr), width="stretch")
 
         st.divider()
 
