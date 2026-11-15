@@ -4,3 +4,7 @@ primaryColor = "#3d6b44"
 backgroundColor = "#f5f3ee"
 secondaryBackgroundColor = "#edeae0"
 textColor = "#1a2416"
+
+[server]
+websocketPingInterval = 20
+disconnectedSessionTTL = 60

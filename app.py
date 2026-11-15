@@ -587,7 +587,10 @@ def fetch_bird_audio(sci_name: str):
 
 
 # ---- Load data ----
-DB_PATH = pathlib.Path("birds_lfs.db")
+APP_DIR = pathlib.Path(__file__).resolve().parent
+DB_PATH = APP_DIR / "birds_lfs.db"
+STATUS_PATH = APP_DIR / "UK_Birds_Generalized_Status.xlsx"
+DIET_PATH = APP_DIR / "species_diet.json"
 
 
 def database_cache_signature(db_path):
@@ -595,19 +598,74 @@ def database_cache_signature(db_path):
     return str(db_path), stat.st_mtime_ns, stat.st_size
 
 
-@st.cache_data(max_entries=2)
-def load_data(db_path, db_mtime_ns, db_size):
-    # The mtime and size arguments make Streamlit reload when cron updates the DB.
-    conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query("SELECT * FROM detections", conn)
-    conn.close()
+def file_cache_signature(path):
+    stat = path.stat()
+    return str(path), stat.st_mtime_ns, stat.st_size
 
-    df["timestamp"] = pd.to_datetime(df["Date"] + " " + df["Time"], errors="coerce")
-    df["hour"]  = df["timestamp"].dt.hour
-    df["week"]  = df["timestamp"].dt.isocalendar().week.astype(int)
-    df["month"] = df["timestamp"].dt.month.astype(int)
 
-    meta = pd.read_excel("UK_Birds_Generalized_Status.xlsx")
+def sqlite_connection(db_path):
+    return sqlite3.connect(f"file:{pathlib.Path(db_path).resolve()}?mode=ro", uri=True)
+
+
+def sql_where_clause(
+    min_conf=None,
+    species=(),
+    sci_names=None,
+    start_date=None,
+    end_date=None,
+    years=(),
+    months=(),
+):
+    clauses = []
+    params = []
+    if min_conf is not None:
+        clauses.append("Confidence >= ?")
+        params.append(float(min_conf))
+    if species:
+        clauses.append(f"Com_Name IN ({','.join('?' for _ in species)})")
+        params.extend(species)
+    if sci_names is not None:
+        if sci_names:
+            clauses.append(f"Sci_Name IN ({','.join('?' for _ in sci_names)})")
+            params.extend(sci_names)
+        else:
+            clauses.append("1 = 0")
+    if start_date is not None:
+        clauses.append("Date >= ?")
+        params.append(str(start_date))
+    if end_date is not None:
+        clauses.append("Date <= ?")
+        params.append(str(end_date))
+    if years:
+        year_values = tuple(str(year) for year in years)
+        clauses.append(f"substr(Date, 1, 4) IN ({','.join('?' for _ in year_values)})")
+        params.extend(year_values)
+    if months:
+        month_values = tuple(f"{int(month):02d}" for month in months)
+        clauses.append(f"substr(Date, 6, 2) IN ({','.join('?' for _ in month_values)})")
+        params.extend(month_values)
+    return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+
+@st.cache_resource(max_entries=1)
+def load_species_catalog(
+    db_path,
+    db_mtime_ns,
+    db_size,
+    status_path,
+    status_mtime_ns,
+    status_size,
+    diet_path,
+    diet_mtime_ns,
+    diet_size,
+):
+    with sqlite_connection(db_path) as conn:
+        catalog = pd.read_sql_query(
+            "SELECT DISTINCT Sci_Name, Com_Name FROM detections",
+            conn,
+        )
+
+    meta = pd.read_excel(status_path)
     meta = meta.rename(columns={
         "Latin Name":  "Sci_Name",
         "Common Name": "UK_Common_Name",
@@ -615,22 +673,177 @@ def load_data(db_path, db_mtime_ns, db_size):
     })
     meta = meta[["Sci_Name", "UK_Common_Name", "UK_Status"]].drop_duplicates()
 
-    df = df.merge(meta, on="Sci_Name", how="left")
-    df["UK_Status"] = df["UK_Status"].fillna("Review Recording")
-    return df
+    catalog = catalog.merge(meta, on="Sci_Name", how="left")
+    catalog["UK_Status"] = catalog["UK_Status"].fillna("Review Recording")
+    try:
+        with open(diet_path) as diet_file:
+            diet_map = json.load(diet_file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        diet_map = {}
+    catalog["Diet"] = catalog["Sci_Name"].map(diet_map).fillna("Unclassified")
+    text_columns = ["Sci_Name", "Com_Name", "UK_Common_Name", "UK_Status", "Diet"]
+    catalog[text_columns] = catalog[text_columns].astype("string[pyarrow]")
+    return catalog
 
-df = load_data(*database_cache_signature(DB_PATH))
+
+@st.cache_data(max_entries=64)
+def detection_bounds(db_path, db_mtime_ns, db_size, min_conf=None, species=(), sci_names=None):
+    where_sql, params = sql_where_clause(
+        min_conf=min_conf,
+        species=species,
+        sci_names=sci_names,
+    )
+    with sqlite_connection(db_path) as conn:
+        row = conn.execute(
+            f"SELECT MIN(Date), MAX(Date), MIN(Confidence), MAX(Confidence) FROM detections{where_sql}",
+            params,
+        ).fetchone()
+    return row
+
+
+@st.cache_data(max_entries=64)
+def detection_dimensions(
+    db_path,
+    db_mtime_ns,
+    db_size,
+    min_conf=None,
+    species=(),
+    sci_names=None,
+    start_date=None,
+    end_date=None,
+):
+    where_sql, params = sql_where_clause(
+        min_conf=min_conf,
+        species=species,
+        sci_names=sci_names,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    with sqlite_connection(db_path) as conn:
+        species_rows = conn.execute(
+            f"SELECT DISTINCT Sci_Name, Com_Name FROM detections{where_sql} ORDER BY Com_Name",
+            params,
+        ).fetchall()
+        year_rows = conn.execute(
+            f"SELECT DISTINCT CAST(substr(Date, 1, 4) AS INTEGER) FROM detections{where_sql} ORDER BY 1",
+            params,
+        ).fetchall()
+    return tuple(species_rows), tuple(row[0] for row in year_rows if row[0] is not None)
+
+
+@st.cache_data(max_entries=2)
+def station_has_location(db_path, db_mtime_ns, db_size):
+    with sqlite_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM detections WHERE Lat IS NOT NULL AND Lon IS NOT NULL LIMIT 1"
+        ).fetchone()
+    return row is not None
+
+
+@st.cache_data(max_entries=32)
+def detection_species_ranking(
+    db_path,
+    db_mtime_ns,
+    db_size,
+    min_conf=None,
+    species=(),
+    sci_names=None,
+    start_date=None,
+    end_date=None,
+    years=(),
+):
+    where_sql, params = sql_where_clause(
+        min_conf=min_conf,
+        species=species,
+        sci_names=sci_names,
+        start_date=start_date,
+        end_date=end_date,
+        years=years,
+    )
+    query = (
+        "SELECT Com_Name, COUNT(*) AS detection_count, MIN(rowid) AS first_row "
+        f"FROM detections{where_sql} "
+        "GROUP BY Com_Name ORDER BY detection_count DESC, first_row ASC"
+    )
+    with sqlite_connection(db_path) as conn:
+        rows = conn.execute(query, params).fetchall()
+    return tuple(row[0] for row in rows)
+
+
+def enrich_detection_data(data, species_catalog):
+    source_text_columns = ["Date", "Time", "Sci_Name", "Com_Name"]
+    data[source_text_columns] = data[source_text_columns].astype("string[pyarrow]")
+    data["timestamp"] = pd.to_datetime(data["Date"] + " " + data["Time"], errors="coerce")
+    data = data.drop(columns="Time")
+    data["hour"] = data["timestamp"].dt.hour.astype(int)
+    data["week"] = data["timestamp"].dt.isocalendar().week.astype(int)
+    data["month"] = data["timestamp"].dt.month.astype(int)
+    data["year"] = data["timestamp"].dt.year.astype(int)
+    data["month_num"] = data["timestamp"].dt.month.astype(int)
+    data["date"] = data["timestamp"].dt.date
+    data["doy"] = data["timestamp"].dt.dayofyear.astype(int)
+    data["season"] = data["month_num"].map({
+        1: "Winter", 2: "Winter", 3: "Spring", 4: "Spring",
+        5: "Spring", 6: "Summer", 7: "Summer", 8: "Summer",
+        9: "Autumn", 10: "Autumn", 11: "Autumn", 12: "Winter",
+    })
+    data = data.merge(
+        species_catalog[["Sci_Name", "UK_Common_Name", "UK_Status", "Diet"]],
+        on="Sci_Name",
+        how="left",
+    )
+    return data.drop(columns="UK_Common_Name")
+
+
+@st.cache_resource(max_entries=1)
+def load_detection_rows(
+    db_path,
+    db_mtime_ns,
+    db_size,
+    catalog_signature,
+    min_conf=None,
+    species=(),
+    sci_names=None,
+    start_date=None,
+    end_date=None,
+    years=(),
+    months=(),
+):
+    where_sql, params = sql_where_clause(
+        min_conf=min_conf,
+        species=species,
+        sci_names=sci_names,
+        start_date=start_date,
+        end_date=end_date,
+        years=years,
+        months=months,
+    )
+    query = (
+        "SELECT Date, Time, Sci_Name, Com_Name, Confidence, Lat, Lon "
+        f"FROM detections{where_sql}"
+    )
+    with sqlite_connection(db_path) as conn:
+        data = pd.read_sql_query(query, conn, params=params)
+    return enrich_detection_data(data, species_catalog)
 
 
 def load_diet_map():
     try:
-        with open("species_diet.json") as f:
+        with open(DIET_PATH) as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
 
-_diet_map = load_diet_map()
-df["Diet"] = df["Sci_Name"].map(_diet_map).fillna("Unclassified")
+
+db_signature = database_cache_signature(DB_PATH)
+status_signature = file_cache_signature(STATUS_PATH)
+diet_signature = file_cache_signature(DIET_PATH)
+catalog_signature = db_signature + status_signature + diet_signature
+species_catalog = load_species_catalog(
+    *db_signature,
+    *status_signature,
+    *diet_signature,
+)
 
 
 @st.cache_data(ttl=86400)
@@ -766,6 +979,9 @@ def load_garden_events():
 
 
 def prepare_news_df(data):
+    prepared_columns = {"date", "hour", "year", "month_num", "doy"}
+    if prepared_columns.issubset(data.columns) and data["timestamp"].notna().all():
+        return data
     news_df = data.dropna(subset=["timestamp"]).copy()
     if len(news_df) == 0:
         return news_df
@@ -2234,33 +2450,60 @@ st.sidebar.divider()
 
 min_conf = st.sidebar.slider(
     "Minimum Confidence",
-    float(df["Confidence"].min()),
-    float(df["Confidence"].max()),
-    float(df["Confidence"].min()),
+    float(detection_bounds(*db_signature)[2]),
+    float(detection_bounds(*db_signature)[3]),
+    float(detection_bounds(*db_signature)[2]),
 )
 
-filtered = df[df["Confidence"] >= min_conf].copy()
+available_species_rows, _ = detection_dimensions(*db_signature, min_conf=min_conf)
+available_species = sorted({row[1] for row in available_species_rows if row[1] is not None})
 
 species_list = st.sidebar.multiselect(
     "Select Species",
-    sorted(filtered["Com_Name"].dropna().unique()),
+    available_species,
 )
-if species_list:
-    filtered = filtered[filtered["Com_Name"].isin(species_list)]
+
+status_species_rows, _ = detection_dimensions(
+    *db_signature,
+    min_conf=min_conf,
+    species=tuple(species_list),
+)
+status_sci_names = {row[0] for row in status_species_rows}
+available_statuses = sorted(
+    species_catalog.loc[
+        species_catalog["Sci_Name"].isin(status_sci_names),
+        "UK_Status",
+    ].dropna().unique()
+)
 
 status_list = st.sidebar.multiselect(
     "UK Status",
-    sorted(filtered["UK_Status"].dropna().unique()),
+    available_statuses,
 )
-if status_list:
-    filtered = filtered[filtered["UK_Status"].isin(status_list)]
 
-filtered_pre_date = filtered.copy()
+
+def sci_names_for_statuses(selected_statuses=(), excluded_statuses=()):
+    if not selected_statuses and not excluded_statuses:
+        return None
+    status_mask = pd.Series(True, index=species_catalog.index)
+    if selected_statuses:
+        status_mask &= species_catalog["UK_Status"].isin(selected_statuses)
+    if excluded_statuses:
+        status_mask &= ~species_catalog["UK_Status"].isin(excluded_statuses)
+    return tuple(sorted(species_catalog.loc[status_mask, "Sci_Name"].dropna().unique()))
+
+
+selected_status_sci_names = sci_names_for_statuses(tuple(status_list))
 
 st.sidebar.subheader("Date Range")
-filtered_ts = filtered.dropna(subset=["timestamp"]).copy()
-min_date = filtered_ts["timestamp"].min().date()
-max_date = filtered_ts["timestamp"].max().date()
+date_bounds = detection_bounds(
+    *db_signature,
+    min_conf=min_conf,
+    species=tuple(species_list),
+    sci_names=selected_status_sci_names,
+)
+min_date = pd.to_datetime(date_bounds[0]).date()
+max_date = pd.to_datetime(date_bounds[1]).date()
 
 date_range = st.sidebar.date_input(
     "Select Date Range",
@@ -2269,30 +2512,23 @@ date_range = st.sidebar.date_input(
     max_value=max_date,
 )
 
-if isinstance(date_range, tuple) and len(date_range) == 2:
+if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
     start_date, end_date = date_range
 else:
     start_date = end_date = date_range
 
-filtered = filtered[
-    (filtered["timestamp"].dt.date >= start_date) &
-    (filtered["timestamp"].dt.date <= end_date)
-].copy()
-
-def season_from_month(m: int) -> str:
-    if m in (3, 4, 5):  return "Spring"
-    if m in (6, 7, 8):  return "Summer"
-    if m in (9, 10, 11): return "Autumn"
-    return "Winter"
-
-filtered["year"]      = filtered["timestamp"].dt.year.astype("Int64")
-filtered["month_num"] = filtered["timestamp"].dt.month.astype("Int64")
-filtered["season"]    = filtered["month_num"].apply(lambda m: season_from_month(m) if pd.notna(m) else None)
-
 # ── Year / Season / Month sidebar filters ──
 st.sidebar.subheader("Year / Season / Month")
 
-_years_available = sorted(filtered["year"].dropna().unique())
+_, _years_available = detection_dimensions(
+    *db_signature,
+    min_conf=min_conf,
+    species=tuple(species_list),
+    sci_names=selected_status_sci_names,
+    start_date=start_date,
+    end_date=end_date,
+)
+_years_available = list(_years_available)
 year_mode = st.sidebar.selectbox("Years", ["All years", "Select years"], index=0)
 selected_years = []
 if year_mode == "Select years":
@@ -2300,8 +2536,6 @@ if year_mode == "Select years":
         "Choose years", _years_available,
         default=_years_available[-1:] if _years_available else [],
     )
-    if selected_years:
-        filtered = filtered[filtered["year"].isin(selected_years)].copy()
 
 selected_season = st.sidebar.selectbox("Season", ["All", "Spring", "Summer", "Autumn", "Winter"], index=0)
 
@@ -2318,27 +2552,119 @@ chosen_month = None
 if month_mode == "Choose month":
     chosen_month = st.sidebar.selectbox("Choose month value", month_names_list, index=0)
 
-# Keep a copy before season/month filters for compare-mode overrides
-_filtered_pre_season_month = filtered.copy()
-
-if selected_season != "All":
-    filtered = filtered[filtered["season"] == selected_season].copy()
-if month_mode == "Choose month" and chosen_month:
-    filtered = filtered[filtered["month_num"] == month_num_by_name[chosen_month]].copy()
-
 st.sidebar.divider()
 
 exclude_review = st.sidebar.checkbox("Exclude 'Review Recording' & 'False Positive'", value=True)
-review_df = filtered[filtered["UK_Status"] == "Review Recording"].copy()
-if exclude_review:
-    filtered = filtered[~filtered["UK_Status"].isin(["Review Recording", "False Positive"])].copy()
+excluded_statuses = ("Review Recording", "False Positive") if exclude_review else ()
+filtered_status_sci_names = sci_names_for_statuses(tuple(status_list), excluded_statuses)
 
-daily_base = filtered_pre_date.copy()
-if exclude_review:
-    daily_base = daily_base[~daily_base["UK_Status"].isin(["Review Recording", "False Positive"])].copy()
+selected_months = ()
+if selected_season != "All":
+    selected_months = {
+        "Spring": (3, 4, 5),
+        "Summer": (6, 7, 8),
+        "Autumn": (9, 10, 11),
+        "Winter": (12, 1, 2),
+    }[selected_season]
+if month_mode == "Choose month" and chosen_month:
+    chosen_month_number = month_num_by_name[chosen_month]
+    selected_months = (
+        (chosen_month_number,)
+        if not selected_months or chosen_month_number in selected_months
+        else (-1,)
+    )
 
-daily_base = daily_base.dropna(subset=["timestamp"]).copy()
-daily_available_dates = sorted(daily_base["timestamp"].dt.date.unique().tolist())
+query_common = {
+    "min_conf": min_conf,
+    "species": tuple(species_list),
+    "sci_names": filtered_status_sci_names,
+}
+query_dated = {
+    **query_common,
+    "start_date": start_date,
+    "end_date": end_date,
+    "years": tuple(selected_years),
+}
+query_dated_preexclude = {
+    **query_dated,
+    "sci_names": selected_status_sci_names,
+}
+
+review_df = pd.DataFrame()
+_filtered_pre_season_month = pd.DataFrame()
+if page == "Daily Overview":
+    daily_base = load_detection_rows(
+        *db_signature,
+        catalog_signature,
+        **query_common,
+    )
+    if daily_base["timestamp"].isna().any():
+        daily_base = daily_base.dropna(subset=["timestamp"])
+    filtered = daily_base
+elif page == "Community":
+    filtered = load_detection_rows(
+        *db_signature,
+        catalog_signature,
+        **query_dated,
+        months=tuple(selected_months),
+    )
+    community_comparison_active = any(
+        st.session_state.get(key, False)
+        for key in ("tod_cmp_months", "tod_cmp_seasons", "cc_cmp_months", "cc_cmp_seasons")
+    )
+    if community_comparison_active:
+        _filtered_pre_season_month = load_detection_rows(
+            *db_signature,
+            catalog_signature,
+            **query_dated_preexclude,
+        )
+    else:
+        _filtered_pre_season_month = filtered
+
+    ranking_sci_names = sci_names_for_statuses(
+        tuple(status_list),
+        ("Review Recording",) if exclude_review else (),
+    )
+    community_species_ranked = detection_species_ranking(
+        *db_signature,
+        min_conf=min_conf,
+        species=tuple(species_list),
+        sci_names=ranking_sci_names,
+        start_date=start_date,
+        end_date=end_date,
+        years=tuple(selected_years),
+    )
+    daily_base = pd.DataFrame()
+else:
+    filtered = load_detection_rows(
+        *db_signature,
+        catalog_signature,
+        **query_dated,
+        months=tuple(selected_months),
+    )
+    daily_base = pd.DataFrame()
+
+if page == "Data Quality":
+    review_sci_names = sci_names_for_statuses(("Review Recording",))
+    if status_list and "Review Recording" not in status_list:
+        review_sci_names = ()
+    review_df = load_detection_rows(
+        *db_signature,
+        catalog_signature,
+        min_conf=min_conf,
+        species=tuple(species_list),
+        sci_names=review_sci_names,
+        start_date=start_date,
+        end_date=end_date,
+        years=tuple(selected_years),
+        months=tuple(selected_months),
+    )
+
+daily_available_dates = (
+    sorted(daily_base["timestamp"].dt.date.unique().tolist())
+    if page == "Daily Overview"
+    else []
+)
 
 def default_daily_overview_date(available_dates):
     if not available_dates:
@@ -3013,16 +3339,14 @@ elif page == "Community":
     with tc4:
         tod_cmp_seasons = st.checkbox("Compare two seasons", value=False, key="tod_cmp_seasons", on_change=_tod_on_seasons)
 
-    # Pre-filter base for compare overrides
-    _tod_base = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
-    if exclude_review:
-        _tod_base = _tod_base[_tod_base["UK_Status"] != "Review Recording"].copy()
-
     years_label  = "All years" if year_mode == "All years" else ", ".join(map(str, selected_years))
     season_label = "All seasons" if selected_season == "All" else selected_season
     month_label  = "All months" if month_mode == "All months" else chosen_month
 
     if tod_cmp_months:
+        _tod_base = _filtered_pre_season_month.dropna(subset=["timestamp"])
+        if exclude_review:
+            _tod_base = _tod_base[_tod_base["UK_Status"] != "Review Recording"]
         left, right = st.columns(2, gap="large")
         with left:
             tod_ma = st.selectbox("Month A", month_names_list, index=5, key="tod_month_a")
@@ -3042,6 +3366,9 @@ elif page == "Community":
                       f"{tod_mb} · {years_label} · {season_label}", show_by_species, show_by_status)
 
     elif tod_cmp_seasons:
+        _tod_base = _filtered_pre_season_month.dropna(subset=["timestamp"])
+        if exclude_review:
+            _tod_base = _tod_base[_tod_base["UK_Status"] != "Review Recording"]
         seasons_opts = ["Spring", "Summer", "Autumn", "Winter"]
         left, right = st.columns(2, gap="large")
         with left:
@@ -3106,12 +3433,9 @@ elif page == "Community":
 
     comp_df = filtered.dropna(subset=["timestamp"]).copy()
 
-    # Build colour map from the broadest dataset (pre-season/month filter)
-    # so compare modes can look up any species that exists in the data.
-    _comp_base_all = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
-    if exclude_review:
-        _comp_base_all = _comp_base_all[_comp_base_all["UK_Status"] != "Review Recording"].copy()
-    _species_ranked = _comp_base_all["Com_Name"].value_counts().index.tolist()
+    # Build the colour map from SQL-ranked pre-season/month data so compare
+    # modes retain stable species colours without another full DataFrame copy.
+    _species_ranked = list(community_species_ranked)
     species_color_map = {
         sp: NATURE_PALETTE[i % len(NATURE_PALETTE)]
         for i, sp in enumerate(_species_ranked)
@@ -3183,13 +3507,10 @@ elif page == "Community":
     season_label = "All seasons" if selected_season == "All" else selected_season
     month_label  = "All months" if month_mode == "All months" else chosen_month
 
-    # For compare modes, use pre-season/month filtered data so the compare
-    # selectors override the global season/month filters for this page.
-    _comp_base = _filtered_pre_season_month.dropna(subset=["timestamp"]).copy()
-    if exclude_review:
-        _comp_base = _comp_base[_comp_base["UK_Status"] != "Review Recording"].copy()
-
     if compare_months:
+        _comp_base = _filtered_pre_season_month.dropna(subset=["timestamp"])
+        if exclude_review:
+            _comp_base = _comp_base[_comp_base["UK_Status"] != "Review Recording"]
         left, right = st.columns(2, gap="large")
         with left:
             month_a = st.selectbox("Month A", month_names_list, index=5, key="cc_month_a")
@@ -3211,6 +3532,9 @@ elif page == "Community":
             composition_plot(df_b, f"{month_b} · {years_label} · {season_label}")
 
     elif compare_seasons:
+        _comp_base = _filtered_pre_season_month.dropna(subset=["timestamp"])
+        if exclude_review:
+            _comp_base = _comp_base[_comp_base["UK_Status"] != "Review Recording"]
         left, right = st.columns(2, gap="large")
         with left:
             season_a = st.selectbox("Season A", seasons_list, index=0, key="cc_season_a")
@@ -3378,7 +3702,7 @@ elif page == "Community":
             for yr in sorted(div_years):
                 for m in range(1, 13):
                     p_df = d_df[(d_df["year"] == yr) & (d_df["month"] == m)]
-                    counts = p_df["Com_Name"].value_counts().values
+                    counts = p_df["Com_Name"].value_counts().to_numpy(dtype=np.int64)
                     total = counts.sum()
                     richness = len(counts)
                     if total > 0 and richness > 0:
@@ -3443,7 +3767,7 @@ elif page == "Community":
         div_rows = []
         for p in periods:
             p_df = div_df[div_df["period"] == p]
-            counts = p_df["Com_Name"].value_counts().values
+            counts = p_df["Com_Name"].value_counts().to_numpy(dtype=np.int64)
             total = counts.sum()
             richness = len(counts)
             if total > 0 and richness > 0:
@@ -4352,6 +4676,7 @@ elif page == "Data Quality":
                 )
                 if put_resp.status_code in (200, 201):
                     st.cache_data.clear()
+                    st.cache_resource.clear()
                     st.success(
                         f"Saved **{sci_name}** as *{new_status}* and pushed to GitHub."
                     )
@@ -4656,7 +4981,11 @@ elif page == "Records":
     st.subheader("Classify Unclassified Species")
     st.caption("Species not yet assigned a diet category.")
 
-    unclassified = df[df["Diet"] == "Unclassified"][["Sci_Name", "Com_Name"]].drop_duplicates().sort_values("Sci_Name")
+    unclassified = (
+        species_catalog[species_catalog["Diet"] == "Unclassified"][["Sci_Name", "Com_Name"]]
+        .drop_duplicates()
+        .sort_values("Sci_Name")
+    )
 
     if len(unclassified) == 0:
         st.success("All species have been classified!")
@@ -4678,10 +5007,11 @@ elif page == "Records":
 
             diet_data = load_diet_map()
             diet_data[sci_name] = diet
-            with open("species_diet.json", "w") as f:
+            with open(DIET_PATH, "w") as f:
                 json.dump(diet_data, f, indent=2, sort_keys=True)
 
             st.cache_data.clear()
+            st.cache_resource.clear()
             st.success(f"Classified {sci_name} as {diet}.")
             st.rerun()
 
@@ -4691,7 +5021,7 @@ elif page == "Nearby Sightings":
     st.caption("Recent bird observations from iNaturalist near your recording station.")
 
     # Extract station location
-    if "Lat" not in df.columns or "Lon" not in df.columns or df["Lat"].dropna().empty:
+    if not station_has_location(*db_signature):
         st.warning("No location data available for your station.")
     else:
         stn_lat = 52.2387
@@ -4738,7 +5068,7 @@ elif page == "Nearby Sightings":
                 inat_df = pd.DataFrame(rows)
 
                 # Cross-reference with garden detections
-                garden_sci = set(df["Sci_Name"].dropna().unique())
+                garden_sci = set(species_catalog["Sci_Name"].dropna().unique())
                 inat_df["Seen in garden"] = inat_df["sci_name"].isin(garden_sci)
 
                 event = st.pydeck_chart(pdk.Deck(
@@ -4971,7 +5301,7 @@ elif page == "Species Explorer":
                 if diet_changed:
                     diet_data = load_diet_map()
                     diet_data[se_sci] = se_new_diet
-                    with open("species_diet.json", "w") as f:
+                    with open(DIET_PATH, "w") as f:
                         json.dump(diet_data, f, indent=2, sort_keys=True)
 
                 # ── Save status to Excel & push to GitHub ──
@@ -5023,6 +5353,7 @@ elif page == "Species Explorer":
                     )
                     if put_resp.status_code in (200, 201):
                         st.cache_data.clear()
+                        st.cache_resource.clear()
                         parts = [f"Status: *{se_new_status}*"]
                         if diet_changed:
                             parts.append(f"Diet: *{se_new_diet}*")
